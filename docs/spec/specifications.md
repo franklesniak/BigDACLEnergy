@@ -32,7 +32,7 @@
 The tool queries the following Active Directory partitions, discovered dynamically at runtime from the RootDSE:
 
 | Partition | RootDSE Attribute | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | Schema | `schemaNamingContext` | Retrieve class definitions, attribute definitions, default security descriptors |
 | Configuration | `configurationNamingContext` | Retrieve extended rights, control access rights, validated writes, property sets |
 | All naming contexts | `namingContexts` | Scan every object in each naming context (including schema, configuration, domain, and application partitions) for explicit (non-inherited) ACEs |
@@ -85,7 +85,7 @@ A naming context is classified as a "known domain NC" if it appears as the `nCNa
 The tool uses .NET Framework 2.0 managed APIs for DC discovery:
 
 | Behavior | Implementation |
-|---|---|
+| --- | --- |
 | Auto-discover a DC for the current domain | `Domain.GetCurrentDomain()` returns a `Domain` object with an auto-selected DC |
 | Auto-discover forest-level topology | `Forest.GetCurrentForest()` returns the forest with all domains and sites |
 | Connect to a specific server | `new DirectoryEntry("LDAP://serverName")` — connection is established lazily on first property access |
