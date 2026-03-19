@@ -244,6 +244,21 @@ This repository enforces code quality through:
 - **PSScriptAnalyzer:** PowerShell static analysis with OTBS formatting
 - **TFLint:** Terraform linting with configurable rules and cloud provider plugins
 
+### Acknowledgments
+
+BigDACLEnergy is independently implemented but was inspired by the approaches
+of these excellent tools:
+
+- **[ADeleg](https://github.com/mtth-bfft/adeleg)** by
+  [@mtth-bfft](https://github.com/mtth-bfft) — AD delegation management and
+  inventory tool
+- **[ADeleginator](https://github.com/techspence/ADeleginator)** by
+  [@techspence](https://github.com/techspence) — Insecure AD delegation
+  finder
+
+No source code from either project is used in BigDACLEnergy. See
+[ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for details.
+
 ### License
 
 MIT License - See [LICENSE](LICENSE) for details.
