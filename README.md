@@ -26,7 +26,7 @@ exports risk-scored findings to CSV.
 - **SID resolution** — Resolves Security Identifiers to human-readable
   display names using a four-step priority chain: cache, .NET `Translate()`,
   LDAP lookup, and raw SID fallback
-- **Dangerous delegation detection** — Identifies 27+ dangerous delegation
+- **Dangerous delegation detection** — Identifies 27 dangerous delegation
   types across five categories: full control, dangerous writes, control
   access rights, create/delete operations, and validated writes
 - **Risk classification** — Applies a four-level graduated severity model
@@ -84,9 +84,15 @@ BigDACLEnergy supports three authentication methods (in priority order):
 
 1. **Single sign-on (SSO)** — Uses the current Windows identity (default;
    no credential parameters required)
-2. **Interactive password** — Prompts for a password securely without echo
-3. **Environment variable** — Reads a password from a named environment
-   variable (no cleartext passwords on the command line)
+2. **Interactive password** — Supply `-Username <user> -Password *` to be
+   prompted for a password securely without echo
+3. **Environment variable** — Supply `-Username <user> -PasswordEnv
+   <VARIABLE_NAME>` to read the password from a named environment variable
+   (no cleartext passwords on the command line)
+
+> **Note:** Cleartext passwords on the command line are not supported.
+> If automation requires non-interactive credential supply, use the
+> `-PasswordEnv` option.
 
 ### Output
 
