@@ -106,8 +106,8 @@ following columns:
 | Trustee type | The type of the trustee; one of: `User`, `Group`, `Computer`, `External` |
 | Category | The delegation category (e.g., full control, dangerous write) |
 | Details | Specific permission details and object type information |
-| Risk Level | Graduated severity: Critical, High, Medium, or Informational |
-| Current User Can Exploit | Whether the current user can exploit this delegation |
+| Risk Level | Graduated severity when present: `Critical`, `High`, `Medium`, or `Informational`; may be empty when no risk rule matches |
+| Current User Can Exploit | `Yes` when exploitable by the current user; may be empty when not exploitable or not determined |
 
 ## Contributing
 
