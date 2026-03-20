@@ -11,8 +11,9 @@ exports risk-scored findings to CSV.
 ## Features
 
 - **Multi-domain forest scanning** — Automatically discovers all domains in
-  the forest via RootDSE bootstrap and enumerates naming contexts (Domain,
-  Configuration, Schema)
+  the forest via RootDSE bootstrap and enumerates all naming contexts
+  returned by RootDSE (including Domain, Configuration, Schema, and
+  application partitions)
 - **Security descriptor extraction** — Retrieves and parses binary security
   descriptors from AD objects, extracting individual ACEs with full access
   mask and object type resolution
@@ -43,9 +44,9 @@ exports risk-scored findings to CSV.
 
 ## Prerequisites
 
-- **Windows PowerShell 2.0+** or **PowerShell 7.x+** — The tool targets
-  .NET Framework 2.0 compatibility for maximum portability across Windows
-  Server environments (Windows Server 2003 and later)
+- **Windows PowerShell 1.0–5.1** or **PowerShell 7.x+** (Windows) — The
+  tool targets .NET Framework 2.0 compatibility for maximum portability
+  across Windows Server environments (Windows Server 2003 and later)
 - **Active Directory environment** — The tool requires access to an AD
   forest with appropriate read permissions on directory objects and security
   descriptors
@@ -58,27 +59,34 @@ BigDACLEnergy scans an Active Directory forest, analyzes delegations, and
 exports findings to CSV:
 
 ```powershell
-# Basic scan using current credentials (SSO)
+# Basic scan using current credentials (SSO), output CSV to stdout
 .\BigDACLEnergy.ps1
 
-# Scan with explicit output path
-.\BigDACLEnergy.ps1 -OutputPath .\results.csv
+# Scan with explicit CSV output path
+.\BigDACLEnergy.ps1 -Csv .\results.csv
 
 # Scan with increased verbosity
 .\BigDACLEnergy.ps1 -Verbose
 
 # Export only findings at or above a risk threshold
-.\BigDACLEnergy.ps1 -RiskCSV .\risk-findings.csv -RiskLevel High
+.\BigDACLEnergy.ps1 -RiskCsv .\risk-findings.csv -RiskLevel High
+
+# Target a specific domain controller
+.\BigDACLEnergy.ps1 -Server dc01.example.com -Csv .\results.csv
+
+# Exclude specific subtrees from the scan
+.\BigDACLEnergy.ps1 -Csv .\results.csv -ExcludeDN "OU=Workstations,DC=example,DC=com"
 ```
 
 ### Authentication
 
 BigDACLEnergy supports three authentication methods (in priority order):
 
-1. **Single sign-on (SSO)** — Uses the current Windows identity (default)
-2. **Interactive password** — Prompts securely via `Console.ReadKey(true)`
-3. **Environment variable** — Reads credentials from an environment variable
-   (no cleartext passwords on the command line)
+1. **Single sign-on (SSO)** — Uses the current Windows identity (default;
+   no credential parameters required)
+2. **Interactive password** — Prompts for a password securely without echo
+3. **Environment variable** — Reads a password from a named environment
+   variable (no cleartext passwords on the command line)
 
 ### Output
 
