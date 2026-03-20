@@ -226,8 +226,7 @@ When submitting a pull request:
 
 If you have questions or encounter issues:
 
-1. Check existing
-   [Issues](https://github.com/franklesniak/BigDACLEnergy/issues)
+1. Check existing [Issues](https://github.com/franklesniak/BigDACLEnergy/issues)
 2. Review the documentation in `.github/instructions/`
 3. Open a new issue with a clear description of the problem
 
