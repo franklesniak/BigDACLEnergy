@@ -18,6 +18,7 @@
   - [Linting Tools](#linting-tools)
   - [Testing](#testing)
   - [Code Quality](#code-quality)
+  - [Acknowledgments](#acknowledgments)
   - [License](#license)
 
 ---
