@@ -21,7 +21,7 @@ title: "[Bug] "
 #   - Area labels: area:api, area:cli, area:docs
 labels:
   - bug
-  # - triage  # ACTION ITEM: Uncomment after creating the `triage` label in your repository
+  - triage
 # CUSTOMIZE: Uncomment and update to specify an issue type (defined at the organization level).
 # See: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms#top-level-syntax
 # type: Bug

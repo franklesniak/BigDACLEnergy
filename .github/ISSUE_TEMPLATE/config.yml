@@ -78,9 +78,9 @@ contact_links:
   # CUSTOMIZE: Uncomment the following block if your repository uses GitHub
   # Discussions for Q&A.
   # =============================================================================
-  # - name: 💬 Questions & Discussions
-  #   url: https://github.com/franklesniak/BigDACLEnergy/discussions
-  #   about: Ask questions and discuss ideas (not for bug reports)
+  - name: 💬 Questions & Discussions
+    url: https://github.com/franklesniak/BigDACLEnergy/discussions
+    about: Ask questions and discuss ideas (not for bug reports)
 
   # =============================================================================
   # SUPPORT / FAQ LINK (OPTIONAL)
