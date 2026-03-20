@@ -103,7 +103,7 @@ The tool should default to using `Domain.GetCurrentDomain()` for DC discovery (w
 ### Authentication
 
 | Behavior | Implementation |
-|---|---|
+| --- | --- |
 | Use current Windows SSO (Negotiate/SSPI) | `new DirectoryEntry(path)` — uses the process identity automatically |
 | Explicit credentials | `new DirectoryEntry(path, username, password, AuthenticationTypes.Secure)` |
 | Interactive password entry (`--password *`) | Read password via `Console.ReadKey(true)` in a loop, pass to `DirectoryEntry` constructor |
@@ -111,7 +111,7 @@ The tool should default to using `Domain.GetCurrentDomain()` for DC discovery (w
 ### LDAP Filters Used
 
 | Query Target | Filter | Attributes Requested |
-|---|---|---|
+| --- | --- | --- |
 | Property sets | `(&(objectClass=controlAccessRight)(validAccesses=48)(rightsGuid=*))` | `rightsGuid`, `displayName` |
 | Validated writes | `(&(objectClass=controlAccessRight)(validAccesses=8)(rightsGuid=*))` | `rightsGuid`, `displayName` |
 | Control access rights | `(&(objectClass=controlAccessRight)(validAccesses=256)(rightsGuid=*))` | `rightsGuid`, `displayName` |
@@ -229,7 +229,7 @@ Passing `false` for `includeInherited` retrieves only explicit ACEs directly, re
 Each `ActiveDirectoryAccessRule` exposes:
 
 | Property | Description |
-|---|---|
+| --- | --- |
 | `AccessControlType` | `Allow` or `Deny` |
 | `ActiveDirectoryRights` | Flags enum of access rights granted/denied |
 | `ObjectType` | GUID identifying the specific property, property set, extended right, or child class |
@@ -317,7 +317,7 @@ When computing inherited ACEs from schema defaults, if the parent ACE's trustee 
 ACEs for the following well-known SIDs are suppressed by default. These are highly-privileged or default trustees whose ACEs are usually not actionable for delegation review. They can be re-enabled via `--show-ignored-trustees`:
 
 | SID | Identity |
-|---|---|
+| --- | --- |
 | `S-1-5-10` | SELF |
 | `S-1-5-18` | Local System |
 | `S-1-5-20` | Network Service |
@@ -438,6 +438,7 @@ SID resolution uses a clear 4-step priority:
 The SID resolution cache uses **"first write wins"** semantics: once a SID's mapping is stored, it is not overwritten for the duration of the run. This ensures stable, predictable resolution results.
 
 The cache stores a typed resolution result with:
+
 - **Display name**: Either a `DOMAIN\Username` string (from `Translate()`) or a DN (from LDAP lookup) or a raw SID string (fallback)
 - **Principal type**: The resolved principal type classification
 - **Resolution source**: Which resolution path populated the entry (for diagnostic purposes)
@@ -457,7 +458,7 @@ Each resolved SID is mapped to one of four principal type classifications. The m
 **From LDAP (objectClass-based):** The most specific class (last value of the multi-valued `objectClass` attribute) is compared via case-insensitive exact match:
 
 | Most Specific Class | Principal Type | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `computer` | `Computer` | Includes machine accounts |
 | `user` | `User` | Includes `inetOrgPerson` (which inherits from `user` and appears as most-specific class `inetOrgPerson` — see below) |
 | `group` | `Group` | |
@@ -500,7 +501,7 @@ if (domainSid != null && IsKnownDomainSid(domainSid))
 The tool maps `ActiveDirectoryRights` enum values to human-readable descriptions. When in resolved-name mode (the default), the following mappings apply:
 
 | `ActiveDirectoryRights` Value | Human-Readable Description |
-|---|---|
+| --- | --- |
 | `WriteProperty` | "Write attribute {name}" (attribute GUID match), "Write attributes of category {name}" (property set GUID match), or "Write all properties" (no match/no GUID) |
 | `ExtendedRight` | "{Control access name}" or "Perform all application-specific operations" |
 | `CreateChild` | "Create child {class} objects" or "Create child objects of any type" |
@@ -528,7 +529,7 @@ if ((rule.ActiveDirectoryRights & ActiveDirectoryRights.WriteProperty) != 0)
 In **resolved-name mode** (the default), the `ObjectType` GUID resolution is **conditional on which access right is set**:
 
 | Access Right | GUID Resolution Order |
-|---|---|
+| --- | --- |
 | `WriteProperty` | attribute GUID → property set GUID → (fallback: "Write all properties") |
 | `ExtendedRight` | control access right GUID → (fallback: "Perform all application-specific operations") |
 | `CreateChild` | class GUID → (fallback: "Create child objects of any type") |
@@ -536,6 +537,7 @@ In **resolved-name mode** (the default), the `ObjectType` GUID resolution is **c
 | `Self` | validated write GUID → (fallback: "Perform all validated writes") |
 
 In **raw mode** (`--show-raw`), the GUID is resolved sequentially across all schema categories:
+
 1. Class GUID → class name
 2. Attribute GUID → attribute name
 3. Control access right GUID → control access name
@@ -632,7 +634,7 @@ The `--csv <path>` command-line argument selects the destination for CSV output.
 
 The CSV output includes a mandatory header row as the first line:
 
-```
+```text
 Resource,Trustee,Trustee type,Category,Details,Risk Level,Current User Can Exploit
 ```
 
@@ -641,7 +643,7 @@ Resource,Trustee,Trustee type,Category,Details,Risk Level,Current User Can Explo
 The CSV output has **7 columns**:
 
 | Column | Name | Description |
-|---|---|---|
+| --- | --- | --- |
 | 1 | **Resource** | The location where the delegation or finding applies. Either a DN (e.g., `OU=Users,DC=example,DC=com`), a schema reference (e.g., `Schema: default security descriptor of class 'user'`), or `Global` for non-location-specific findings |
 | 2 | **Trustee** | The resolved name of the security principal (DN or `DOMAIN\Username`), or the raw SID string if unresolvable, or `Global` for location-level warnings |
 | 3 | **Trustee type** | One of: `User`, `Group`, `Computer`, `External` |
@@ -653,7 +655,7 @@ The CSV output has **7 columns**:
 ### Category Values
 
 | Category | Meaning |
-|---|---|
+| --- | --- |
 | `Owner` | The trustee owns the object, granting implicit full control |
 | `Warning` | A structural issue (unreadable SD, blocked DACL inheritance, non-canonical ACL) or a deleted trustee finding |
 | `Allow ACE` | An explicit allow ACE not explained by any known delegation |
@@ -836,7 +838,7 @@ The XML schema defines elements for configuring risk classification rules (refer
 Delegation definitions support the following wildcard patterns for locations, which are expanded at load time:
 
 | Pattern | Expansion |
-|---|---|
+| --- | --- |
 | `DC=*` | Each domain's DN in the forest |
 | `CN=Configuration,DC=*` | The Configuration naming context |
 | `CN=Schema,DC=*` | The Schema naming context |
@@ -954,7 +956,7 @@ The tool should support a `--log <path>` option that writes all diagnostic messa
 
 After the scan completes, the tool should emit a summary to stderr:
 
-```
+```text
 [i] Scan complete. {totalObjects} objects scanned, {totalACEs} ACEs analyzed, {unreadableSDs} unreadable security descriptors.
 [i] Scan duration: {elapsed}.
 ```
@@ -969,7 +971,7 @@ The tool should support `--exclude-dn <dn>` options (may be specified multiple t
 
 **CLI syntax:**
 
-```
+```text
 tool.exe --csv output.csv --exclude-dn "OU=Workstations,DC=example,DC=com" --exclude-dn "OU=Servers,DC=example,DC=com"
 ```
 
@@ -978,7 +980,7 @@ tool.exe --csv output.csv --exclude-dn "OU=Workstations,DC=example,DC=com" --exc
 The tool supports the following authentication modes, ordered by preference:
 
 | Priority | Method | CLI Syntax | Implementation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | **Windows SSO (SSPI/Negotiate)** | *(no credential flags)* | `new DirectoryEntry(path)` — uses process identity automatically. This is the recommended default. |
 | 2 | **Interactive password entry** | `--username <user> --password *` | Read password character-by-character via `Console.ReadKey(true)` in a loop, building a `string`. Pass to `new DirectoryEntry(path, username, password, AuthenticationTypes.Secure)`. |
 | 3 | **Environment variable** | `--username <user> --password-env <VARIABLE_NAME>` | Read password from `Environment.GetEnvironmentVariable(variableName)`, where `variableName` is the value passed to `--password-env`. If the environment variable is unset or empty, the tool must fail immediately with a clear error message to stderr and exit with a nonzero code — it must **not** attempt a bind with a null/empty password (which could lead to unexpected authentication behavior or weaker-than-intended security). Less visible than command-line arguments. Example: `--password-env ADELEG_PASSWORD` reads from the `ADELEG_PASSWORD` environment variable. |
@@ -1000,7 +1002,7 @@ All CLI arguments should use GNU-style long options with double dashes (e.g., `-
 The tool should support a `--verbose` flag (may be specified multiple times for increased verbosity):
 
 | Level | Flag | Behavior |
-|---|---|---|
+| --- | --- | --- |
 | 0 (default) | *(none)* | Emit errors, warnings, per-object progress counter (the `\r` overwrite from Section 9 Step 5), end-of-scan summary (Section 13.3), and risk summary (Section 20.1) to stderr. |
 | 1 | `--verbose` | Additionally emit per-naming-context completion messages with object counts and risk counts (see Section 20.3). |
 | 2 | `--verbose --verbose` | Additionally emit detailed diagnostic messages (e.g., delegation matching decisions, ACE filter decisions, individual object processing details). |
@@ -1016,7 +1018,7 @@ The `--csv` argument selects the CSV output destination (see Section 10). If `--
 The tool uses differentiated exit codes to support scripting and automation:
 
 | Exit Code | Meaning |
-|---|---|
+| --- | --- |
 | 0 | Success — the requested operation completed successfully (scan, validation, or help output) |
 | 1 | General or unexpected error |
 | 2 | Connection or authentication failure (e.g., `DirectoryServicesCOMException` during bind, or `ActiveDirectoryObjectNotFoundException` from `Domain.GetCurrentDomain()` on a non-domain-joined machine) |
@@ -1031,9 +1033,11 @@ If a search-level LDAP error occurs during the main subtree scan of a naming con
 
 - **The tool does NOT abort the entire run.** The error is logged to stderr (and to the log file if `--log` is active), the affected naming context is marked as failed, and scanning continues with the remaining naming contexts.
 - At the end of the scan, the tool reports which naming contexts were successfully scanned and which failed:
-  ```
+
+  ```text
   [!] Failed to scan naming context: {ncDN} — {errorMessage}
   ```
+
 - If any naming contexts failed, the exit code is 1 (general error), even if other naming contexts succeeded. The CSV output includes results from all successfully scanned naming contexts.
 
 #### Per-Object Error Handling
@@ -1062,7 +1066,7 @@ As detailed in Section 13.5, cleartext passwords on the command line are not sup
 
 For interactive password entry, the tool should:
 
-1. Print `Password: ` to stderr (no newline).
+1. Print `Password:` to stderr (no newline).
 2. Read characters via `Console.ReadKey(true)` in a loop until the user presses Enter.
 3. Print a newline to stderr after entry is complete.
 4. Use the collected string as the password for `DirectoryEntry` constructors.
@@ -1081,7 +1085,7 @@ If an explicit LDAPS connection is needed (e.g., `"LDAP://server:636"` with `Aut
 
 The tool should log the following execution metadata to stderr (and to the log file if `--log` is specified):
 
-```
+```text
 [i] Tool version: {version}
 [i] Start time: {UTC timestamp}
 [i] Running as: {DOMAIN\username} ({SID})
@@ -1158,7 +1162,7 @@ The tool targets .NET Framework 2.0 for the following reasons:
 **Accepted trade-offs:**
 
 | Trade-off | Mitigation |
-|---|---|
+| --- | --- |
 | No LINQ | Use explicit loops and `Dictionary`/`List` operations |
 | No `HashSet<T>` | Use `Dictionary<string, bool>` with `ContainsKey()` (see Section 20.5) |
 | No modern TLS defaults | Rely on `AuthenticationTypes.Secure` for SSPI-negotiated authentication as the default (signing/sealing are typically negotiated but depend on DC/client policies; use LDAPS via `AuthenticationTypes.Secure` &#124; `AuthenticationTypes.SecureSocketsLayer` when guaranteed transport encryption is required) |
@@ -1188,7 +1192,7 @@ The new tool performs risk classification **during** the scan, when raw SIDs, ac
 Two columns are added to the CSV output schema (extending the schema defined in Section 10):
 
 | Column | Name | Description |
-|---|---|---|
+| --- | --- | --- |
 | 6 | **Risk Level** | A risk classification for the row. One of: `Critical`, `High`, `Medium`, `Informational`, or empty (blank) for rows that do not match any risk rule. |
 | 7 | **Current User Can Exploit** | `Yes` if the ACE trustee SID matches the current user's SID or any of the current user's transitive group SIDs; empty (blank) otherwise. |
 
@@ -1205,7 +1209,7 @@ ADeleginator identifies unsafe trustees using a regex pattern of three hardcoded
 The following SIDs are recognized as unsafe trustees by default. SID-based matching is language-independent and unambiguous:
 
 | # | SID | Identity | Rationale |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | `S-1-1-0` | Everyone | Universal identity that includes all users; since Windows Server 2003, `Everyone` does **not** include `Anonymous Logon` by default (controlled by the group policy "Network access: Let Everyone permissions apply to anonymous users") |
 | 2 | `S-1-5-11` | Authenticated Users | Includes every authenticated identity in the forest |
 | 3 | `S-1-5-7` | Anonymous Logon | Unauthenticated access; dangerous if delegations are granted to it |
@@ -1239,7 +1243,7 @@ The following resources are classified as Tier 0 by default. Resources are ident
 **Tier 0 Security Principals (identified by SID):**
 
 | # | SID Pattern | Identity | Rationale |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | `{domainSID}-500` | Administrator | Built-in administrator account — full domain control |
 | 2 | `{domainSID}-502` | krbtgt | Kerberos ticket-granting account — compromise enables Golden Ticket attacks |
 | 3 | `{domainSID}-512` | Domain Admins | Full administrative control over the domain |
@@ -1260,7 +1264,7 @@ The following resources are classified as Tier 0 by default. Resources are ident
 **Tier 0 Structural Objects (identified by DN pattern and/or object class):**
 
 | # | Identification Method | Identity | Rationale |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 15 | DN = `{domainDN}` (the domain root object) | Domain root object | ACEs here can grant domain-wide permissions via inheritance |
 | 16 | DN = `CN=AdminSDHolder,CN=System,{domainDN}` | AdminSDHolder | SDProp copies this DACL to all protected accounts |
 | 17 | DN = `OU=Domain Controllers,{domainDN}` | Domain Controllers OU | Contains all DC machine accounts |
@@ -1318,7 +1322,7 @@ The following delegation types are classified as dangerous by default, organized
 **Category A — Full-Control Delegations (always dangerous regardless of object type GUID):**
 
 | # | Detection Criteria | ADeleginator Equivalent | Human-Readable Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | Owner SID matches unsafe trustee | `"owns"` | Ownership grants implicit WRITE_DAC + READ_CONTROL — the owner can rewrite the entire DACL |
 | 2 | `ActiveDirectoryRights.WriteOwner` | `"Change the owner"` | Can take ownership, then rewrite the DACL |
 | 3 | `ActiveDirectoryRights.WriteDacl` | `"add/delete delegations"` | Can directly modify the DACL to grant any permission |
@@ -1332,7 +1336,7 @@ The following delegation types are classified as dangerous by default, organized
 **Category B — Dangerous Write Delegations (dangerous when the object type GUID targets a sensitive attribute or is empty):**
 
 | # | Detection Criteria | Object Type GUID | Human-Readable Description | Attack Vector |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 6 | `WriteProperty` | `Guid.Empty` (all properties) | `"write all properties"` | Modify any attribute — subsumes all specific attribute attacks |
 | 7 | `WriteProperty` | GUID of `servicePrincipalName` | Write SPN | Kerberoasting — set an SPN on a user, then request a ticket encrypted with the user's password hash |
 | 8 | `WriteProperty` | GUID of `msDS-AllowedToActOnBehalfOfOtherIdentity` | Write RBCD | Resource-Based Constrained Delegation — configure the target to accept delegation from an attacker-controlled account |
@@ -1348,7 +1352,7 @@ The following delegation types are classified as dangerous by default, organized
 **Category C — Dangerous Control Access Rights (identified by `ExtendedRight` flag and control access right GUID):**
 
 | # | Detection Criteria | Control Access Right GUID | Human-Readable Description | Attack Vector |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 17 | `ExtendedRight` | `1131f6aa-9c07-11d1-f79f-00c04fc2dcd2` (DS-Replication-Get-Changes) | Replicate directory changes | Required for DCSync (part 1 of 2) |
 | 18 | `ExtendedRight` | `1131f6ad-9c07-11d1-f79f-00c04fc2dcd2` (DS-Replication-Get-Changes-All) | Replicate directory changes (all) | Required for DCSync (part 2 of 2) — together with #17, enables full credential theft |
 | 19 | `ExtendedRight` | `00299570-246d-11d0-a768-00aa006e0529` (User-Force-Change-Password) | Reset password | Reset any user's password without knowing the current password |
@@ -1357,7 +1361,7 @@ The following delegation types are classified as dangerous by default, organized
 **Category D — Dangerous Create/Delete Delegations:**
 
 | # | Detection Criteria | ADeleginator Equivalent | Human-Readable Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 21 | `CreateChild` with `Guid.Empty` | `"create child objects"` | Create any type of child object |
 | 22 | `DeleteChild` with `Guid.Empty` | `"delete child objects"` | Delete any type of child object |
 | 23 | `Delete` | `"delete"` | Delete the object itself |
@@ -1366,7 +1370,7 @@ The following delegation types are classified as dangerous by default, organized
 **Category E — Dangerous Validated Writes:**
 
 | # | Detection Criteria | Validated Write GUID | Human-Readable Description | Attack Vector |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 25 | `Self` | GUID of `Validated-SPN` (`f3a64788-5306-11d1-a9c5-0000f80367c1`) | Validated write to SPN | Kerberoasting vector — validated write may bypass SPN validation checks |
 | 26 | `Self` | GUID of `Validated-DNS-Host-Name` (`72e39547-7b18-11d1-adef-00c04fd8d5cd`) | Validated write to DNS host name | Can alter the DNS host name of a computer object |
 | 27 | `Self` | `Guid.Empty` (all validated writes) | All validated writes | Grants every validated write |
@@ -1411,7 +1415,7 @@ ADeleginator uses a binary classification: a delegation either matches the insec
 ### 18.1. Risk Severity Levels
 
 | Level | Meaning | Action Required |
-|---|---|---|
+| --- | --- | --- |
 | **Critical** | Direct path to domain compromise. Exploitation by any authenticated user (or unauthenticated, for Anonymous Logon) could result in full domain takeover. | Immediate remediation required. |
 | **High** | Significant privilege escalation risk. Exploitation requires compromise of a broadly-scoped account or group, and the target is a Tier 0 resource or the delegation type enables credential theft or persistence. | Remediation strongly recommended. |
 | **Medium** | Elevated risk that does not directly lead to domain compromise but expands the attack surface. Includes dangerous delegation types granted to broadly-scoped trustees on non-Tier-0 objects, or less-dangerous delegations on Tier 0 objects. | Review and remediate as part of delegation hygiene. |
@@ -1426,7 +1430,7 @@ The risk level for a given ACE or owner finding is determined by the intersectio
 3. **Delegation type classification**: Is the delegation type in the dangerous set (Section 17.1), and if so, which category?
 
 | Unsafe Trustee? | Tier 0 Resource? | Dangerous Delegation Category | Risk Level |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Yes | Yes | A (Full-Control) | **Critical** |
 | Yes | Yes | C (DCSync compound — both replication rights) | **Critical** |
 | Yes | Yes | B (Dangerous Write) | **High** |
@@ -1478,18 +1482,22 @@ At startup (before the main scan), the tool:
 
 1. Retrieves the current user's SID via `System.Security.Principal.WindowsIdentity.GetCurrent().User` (returns a `SecurityIdentifier`).
 2. Resolves the current user's transitive group memberships using the `WindowsIdentity.Groups` property:
+
    ```csharp
    WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
    SecurityIdentifier currentUserSid = currentIdentity.User;
    IdentityReferenceCollection groupSids = currentIdentity.Groups;
    // groupSids contains SecurityIdentifier objects for all transitive group memberships
    ```
+
    The `Groups` property returns the user's token group SIDs (equivalent to the `tokenGroups` constructed attribute), which include all transitive/nested group memberships. This is a .NET Framework 2.0 managed API that does not require any LDAP query or `DirectoryEntry` usage, avoiding the need for `--server` prefix handling.
 3. Stores the current user's SID and all group SIDs in a **separate** `Dictionary<string, bool>` (the "current user principals set"), keyed by `SecurityIdentifier.Value`. This set is **not** merged into the policy-based unsafe trustee set (Section 16.3).
 4. Reports the current user context to stderr:
-   ```
+
+   ```text
    [i] Running as: DOMAIN\username (S-1-5-21-...), member of {n} groups ({m} non-Tier-0)
    ```
+
    Here, `{n}` is the total count of SIDs returned by `WindowsIdentity.Groups` and `{m}` is `{n}` minus the count of those group SIDs that are present in the Tier 0 SID Dictionary (i.e., `{m}` counts the group SIDs that are **not** in the Tier 0 set).
 
 **Rationale for `WindowsIdentity.Groups` over `tokenGroups` via LDAP:** ADeleginator uses the `memberOf` attribute via an LDAP query, which only returns direct group memberships and misses nested/transitive groups. An alternative approach would use the `tokenGroups` constructed attribute via `DirectoryEntry.RefreshCache()`, but `WindowsIdentity.Groups` provides the same transitive group resolution without requiring an LDAP query. This avoids `--server` targeting concerns (since it reads from the local access token, not from a directory server) and is the idiomatic .NET Framework 2.0 approach. The `Groups` property returns `IdentityReferenceCollection` containing `SecurityIdentifier` objects, which can be iterated directly.
@@ -1499,7 +1507,7 @@ At startup (before the main scan), the tool:
 **Fixes for ADeleginator bugs:**
 
 | ADeleginator Bug | Fix |
-|---|---|
+| --- | --- |
 | **All-or-nothing group append:** If user has any non-Tier-0 group, all groups (including Tier 0) are appended to unsafe list | **Eliminated:** Current user groups are stored in a separate set and never merged into the policy-based unsafe trustee set |
 | **Space-join bug:** Group array is space-joined instead of pipe-joined, creating a never-matching regex | **Eliminated:** Groups are stored individually in a `Dictionary<string, bool>` keyed by SID; no string concatenation involved |
 | **`memberOf` misses transitive groups:** `memberOf` only returns direct group memberships | **Fixed:** Uses `WindowsIdentity.GetCurrent().Groups` to resolve all transitive group memberships from the local access token — no LDAP query needed |
@@ -1522,19 +1530,19 @@ This per-row annotation enables the report consumer to immediately identify whic
 
 After the scan completes, the tool prints a risk summary to stderr:
 
-```
+```text
 [i] Risk summary: Critical: {criticalCount}, High: {highCount}, Medium: {mediumCount}, Informational: {informationalCount}
 ```
 
 If any `Critical` or `High` findings exist, an additional alert is printed:
 
-```
+```text
 [!] {criticalCount} Critical and {highCount} High risk delegations found. Review the output for details.
 ```
 
 If no findings of any risk level exist:
 
-```
+```text
 [+] No insecure delegations detected.
 ```
 
@@ -1545,7 +1553,7 @@ These messages are emitted via `Console.Error.WriteLine()` to keep stdout clean 
 The tool supports filtered risk output via the following CLI options:
 
 | Option | Description |
-|---|---|
+| --- | --- |
 | `--risk-csv <path>` | Write a filtered CSV containing only rows whose `Risk Level` column meets the `--risk-level` threshold (default: Medium, i.e., Critical, High, and Medium findings). Uses the same schema as the main output (including the `Risk Level` and `Current User Can Exploit` columns). |
 | `--risk-level <level>` | Minimum risk level to include in the `--risk-csv` output. One of: `Critical`, `High`, `Medium`, `Informational`. Default: `Medium` (includes Critical, High, and Medium). Has no effect unless `--risk-csv` is also specified. |
 
@@ -1561,7 +1569,7 @@ The tool supports filtered risk output via the following CLI options:
 #### Comparison with ADeleginator Output
 
 | ADeleginator Behavior | New Tool Behavior |
-|---|---|
+| --- | --- |
 | Produces `ADeleg_InsecureTrusteeDelegationReport_<ddMMyyyy>.csv` and `ADeleg_InsecureResourceDelegationReport_<ddMMyyyy>.csv` as two separate files | Produces a single `--risk-csv` file containing all risk-classified findings with the `Risk Level` column indicating severity. Consumers can filter by `Risk Level` to replicate the two-file approach. |
 | Files are not created if no findings exist | File is always created (may contain only the header row) |
 | Filename includes a date stamp (`<ddMMyyyy>`) | Filename is user-specified via `--risk-csv <path>` |
@@ -1571,7 +1579,7 @@ The tool supports filtered risk output via the following CLI options:
 
 At verbosity level 1 or higher (`--verbose`), as each naming context completes, the tool reports risk findings for that NC:
 
-```
+```text
 [i] {ncDN}: {n} objects scanned, {criticalCount} Critical, {highCount} High, {mediumCount} Medium, {informationalCount} Informational risk findings
 ```
 
@@ -1582,7 +1590,7 @@ The placeholder names (`{criticalCount}`, `{highCount}`, `{mediumCount}`, `{info
 The following table summarizes the specific ADeleginator defects and limitations that the new tool's integrated risk classification corrects:
 
 | ADeleginator Defect/Limitation | Correction in New Tool |
-|---|---|
+| --- | --- |
 | **Name-based regex matching** — fragile, locale-dependent, susceptible to false positives from substring matching | **SID-based and access-mask-based matching** — language-independent, structurally precise, no regex needed |
 | **Space-join bug** — current user's groups are space-joined into a single never-matching regex alternative | **Eliminated** — groups are resolved via `WindowsIdentity.Groups` and stored individually in a `Dictionary<string, bool>` keyed by SID |
 | **All-or-nothing group append** — if any non-Tier-0 group exists, all groups (including Tier 0) are added as unsafe | **Separated concerns** — current user groups stored in a separate set used only for `Current User Can Exploit` annotation; risk classification is deterministic |
@@ -1607,7 +1615,7 @@ The following table summarizes the specific ADeleginator defects and limitations
 **Note on `Dictionary<string, bool>` for set membership:** .NET Framework 2.0 does not include `HashSet<T>` (introduced in .NET 3.5). `Dictionary<string, bool>` with `ContainsKey()` is the standard .NET Framework 2.0 idiom for O(1) set membership checks. The `bool` value is unused (always `true`).
 
 | Data Structure | Purpose | .NET Framework 2.0 Type |
-|---|---|---|
+| --- | --- | --- |
 | Unsafe trustee SID set | O(1) lookup during scan | `Dictionary<string, bool>` keyed by `SecurityIdentifier.Value` |
 | Tier 0 resource SID set | O(1) lookup for security principals | `Dictionary<string, bool>` keyed by `SecurityIdentifier.Value` |
 | Tier 0 resource DN set | O(1) lookup for structural objects | `Dictionary<string, bool>` keyed by DN (`StringComparer.OrdinalIgnoreCase`) |
