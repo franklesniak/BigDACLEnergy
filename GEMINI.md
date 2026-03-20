@@ -1,6 +1,6 @@
 # Agent Instructions for Gemini Code Assist
 
-**Version:** 1.0.20260220.0
+**Version:** 1.1.20260320.0
 
 This file provides project-specific instructions for Gemini Code Assist and
 compatible AI coding agents operating in this repository. These instructions ensure

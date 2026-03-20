@@ -1,6 +1,6 @@
 # Agent Instructions for Claude Code
 
-**Version:** 1.0.20260220.0
+**Version:** 1.1.20260320.0
 
 This file provides project-specific instructions for Claude Code and compatible AI
 coding agents operating in this repository. These instructions ensure that agents

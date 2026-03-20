@@ -1,7 +1,7 @@
 {
   "name": "bigdaclenergy",
   "version": "1.0.0",
-  "description": "An Active Directory delegation and DACL analysis tool for security assessments",
+  "description": "An Active Directory delegation and DACL analysis tool for security assessments. It extracts AD security descriptors, resolves permissions, identifies insecure delegations against Tier 0 assets, and exports risk-scored findings to CSV.",
   "private": true,
   "scripts": {
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
