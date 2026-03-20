@@ -57,13 +57,14 @@ exports risk-scored findings to CSV.
 ## Usage
 
 BigDACLEnergy scans an Active Directory forest, analyzes delegations, and
-exports findings to CSV:
+exports findings to CSV.
+
+> **Note:** The `BigDACLEnergy.ps1` entry point script is not yet available;
+> it is being developed and will be added in a future update. The examples
+> below illustrate the planned interface.
 
 ```powershell
-# Basic scan using current credentials (SSO), output CSV to stdout
-.\BigDACLEnergy.ps1
-
-# Scan with explicit CSV output path
+# Basic scan using current credentials (SSO)
 .\BigDACLEnergy.ps1 -Csv .\results.csv
 
 # Scan with increased verbosity
@@ -108,7 +109,7 @@ following columns:
 | Category | The delegation category (e.g., full control, dangerous write) |
 | Details | Specific permission details and object type information |
 | Risk Level | Graduated severity when present: `Critical`, `High`, `Medium`, or `Informational`; may be empty when no risk rule matches |
-| Current User Can Exploit | `Yes` when exploitable by the current user; may be empty when not exploitable or not determined |
+| Current User Can Exploit | `Yes` when exploitable by the current user; otherwise empty |
 
 ## Contributing
 
