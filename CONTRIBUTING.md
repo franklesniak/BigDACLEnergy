@@ -3,7 +3,7 @@
 <!--
 TEMPLATE DESIGN DECISION: Placeholder Strategy
 
-This file uses OWNER/REPO placeholders (not generic <your-repo> syntax) because:
+This file uses franklesniak/BigDACLEnergy placeholders (not generic <your-repo> syntax) because:
 - Enables bulk find-and-replace for template adopters (single operation)
 - CI automation can verify all placeholders are replaced (.github/workflows/check-placeholders.yml)
 - Results in working, copy-pastable commands after replacement
@@ -47,11 +47,11 @@ Check the [Python Developer's Guide - Versions](https://devguide.python.org/vers
 
 ### 1. Clone the Repository
 
-<!-- CUSTOMIZE: Replace `OWNER/REPO` with your organization and repository name -->
+<!-- CUSTOMIZE: Replace `franklesniak/BigDACLEnergy` with your organization and repository name -->
 
 ```bash
-git clone https://github.com/OWNER/REPO.git
-cd REPO
+git clone https://github.com/franklesniak/BigDACLEnergy.git
+cd BigDACLEnergy
 ```
 
 ### 2. Install Node.js Dependencies (for Markdown linting)
@@ -282,9 +282,9 @@ When submitting a pull request:
 
 If you have questions or encounter issues:
 
-<!-- CUSTOMIZE: Replace `OWNER/REPO` with your organization and repository name -->
+<!-- CUSTOMIZE: Replace `franklesniak/BigDACLEnergy` with your organization and repository name -->
 
-1. Check existing [Issues](https://github.com/OWNER/REPO/issues)
+1. Check existing [Issues](https://github.com/franklesniak/BigDACLEnergy/issues)
 2. Review the documentation in `.github/instructions/`
 3. Open a new issue with a clear description of the problem
 
