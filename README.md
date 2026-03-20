@@ -105,10 +105,10 @@ following columns:
 
 | Column | Description |
 | --- | --- |
-| Resource | The resource identifier associated with the finding. This is often an AD object (such as a DN), but may also be a schema reference or the literal `Global`, as defined in the spec. |
-| Trustee | The trustee associated with the finding. This may be a resolved security principal, the literal `Global`, or an unresolvable raw SID, depending on what the analysis can determine. |
-| Trustee type | A high-level classification of the trustee when resolvable (for example: `User`, `Group`, `Computer`, `External`). This field may be empty or take other values as defined in the spec. |
-| Category | The finding category. This includes delegation-related categories (e.g., full control, dangerous write) and other categories such as `Warning`, `Owner`, `Allow ACE`, and additional values defined in the spec. |
+| Resource | The resource identifier associated with the finding. This is often an AD object (such as a DN), but may also be a schema reference or the literal `Global` (see spec §10 and §16.2 for all cases). |
+| Trustee | The trustee associated with the finding. This may be a resolved security principal, the literal `Global`, or an unresolvable raw SID (see spec §10 for resolution rules). |
+| Trustee type | A high-level classification of the trustee when resolvable (for example: `User`, `Group`, `Computer`, `External`). May be empty for unresolvable SIDs (see spec §10). |
+| Category | The finding category, including delegation categories (e.g., full control, dangerous write) and non-delegation categories (`Warning`, `Owner`, `Allow ACE`). See spec §16.2 for the complete list. |
 | Details | Specific permission details and object type information relevant to the finding. |
 | Risk Level | Graduated severity when present: `Critical`, `High`, `Medium`, or `Informational`; may be empty when no risk rule matches. |
 | Current User Can Exploit | `Yes` when the finding is determined to be exploitable by the current user context; otherwise empty. |
