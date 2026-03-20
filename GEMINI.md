@@ -1,6 +1,6 @@
 # Agent Instructions for Gemini Code Assist
 
-**Version:** 1.0.20260220.0
+**Version:** 1.1.20260320.0
 
 This file provides project-specific instructions for Gemini Code Assist and
 compatible AI coding agents operating in this repository. These instructions ensure
@@ -60,24 +60,10 @@ pre-commit run --all-files
 npm run lint:md
 ```
 
-### Python tests
-
-```bash
-pytest tests/ -v --cov --cov-report=term-missing
-```
-
 ### PowerShell tests
 
 ```powershell
 Invoke-Pester -Path tests/ -Output Detailed
-```
-
-### Terraform
-
-```bash
-terraform fmt -check -recursive
-tflint --recursive
-terraform test -verbose
 ```
 
 ## Language-Specific Instructions
@@ -90,8 +76,6 @@ its pattern.**
 | --- | --- | --- |
 | Markdown/Docs | `.github/instructions/docs.instructions.md` | `**/*.md` |
 | PowerShell | `.github/instructions/powershell.instructions.md` | `**/*.ps1` |
-| Python | `.github/instructions/python.instructions.md` | `**/*.py` |
-| Terraform | `.github/instructions/terraform.instructions.md` | `**/*.tf`, `**/*.tfvars`, `**/*.tftest.hcl` |
 
 ## What Not to Do
 
@@ -106,8 +90,3 @@ its pattern.**
 - Do not create separate "fix formatting" or "fix linting" commits—include all
   auto-fixes in the same commit as your changes.
 
----
-
-> This file is part of the `franklesniak/copilot-repo-template` template. Customize
-> or remove agent instruction files for platforms you do not use. See
-> `OPTIONAL_CONFIGURATIONS.md` for details.

@@ -1,19 +1,24 @@
 {
-  "name": "copilot-repo-template",
+  "name": "bigdaclenergy",
   "version": "1.0.0",
-  "description": "Template repository with Copilot instructions and code quality tooling",
+  "description": "An Active Directory delegation and DACL analysis tool for security assessments. It extracts AD security descriptors, resolves permissions, identifies insecure delegations against Tier 0 assets, and exports risk-scored findings to CSV.",
   "private": true,
   "scripts": {
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
     "lint:md:nested": "node .github/scripts/lint-nested-markdown.js"
   },
   "keywords": [
-    "template",
-    "copilot",
-    "linting"
+    "active-directory",
+    "dacl",
+    "security",
+    "powershell"
   ],
   "author": "Frank Lesniak",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/franklesniak/BigDACLEnergy.git"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
