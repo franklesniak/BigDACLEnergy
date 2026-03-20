@@ -39,8 +39,9 @@ exports risk-scored findings to CSV.
   Level, and Current User Can Exploit
 - **Delegation and template system** — Uses XML-based delegation definitions
   with XSD validation for extensible risk classification rules
-- **Configurable verbosity** — Supports three verbosity levels (0, 1, 2) and
-  file-based logging with UTC timestamps
+- **Configurable verbosity** — Supports adjustable verbosity and file-based
+  logging with UTC timestamps (verbosity level mechanics are being finalized
+  as part of the PowerShell implementation)
 
 ## Prerequisites
 
