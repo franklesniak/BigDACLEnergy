@@ -18,7 +18,8 @@
 # Run:  pre-commit run --all-files
 #
 # Note: This file configures pre-commit hooks for all projects. It handles
-# Markdown validation.
+# general file hygiene (trailing whitespace, EOF fixes, YAML validation,
+# large file detection) and Markdown linting.
 
 repos:
   # General hooks
