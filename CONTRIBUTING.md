@@ -51,7 +51,7 @@ Check the [Python Developer's Guide - Versions](https://devguide.python.org/vers
 
 ```bash
 git clone https://github.com/franklesniak/BigDACLEnergy.git
-cd REPO
+cd BigDACLEnergy
 ```
 
 ### 2. Install Node.js Dependencies (for Markdown linting)
