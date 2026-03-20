@@ -1,15 +1,15 @@
 # Repository Copilot Instructions (Repo-Wide Constitution)
 
-**Version:** 1.1.20260112.0
+**Version:** 1.2.20260320.0
 
 These instructions are authoritative for all changes in this repository.
 
+BigDACLEnergy is an Active Directory delegation and DACL analysis tool for security assessments. It extracts AD security descriptors, resolves permissions, identifies insecure delegations against Tier 0 assets, and exports risk-scored findings to CSV.
+
 ## Source of Truth
 
-> **Customize this section** for your project. Point to your authoritative specification or design document. Example:
->
-> - Read **`docs/spec/requirements.md`** before making changes.
-> - If any instruction here conflicts with the spec, **the spec wins**.
+- Read **`docs/spec/specifications.md`** before making changes.
+- If any instruction here conflicts with the spec, **the spec wins**.
 
 ## Non-negotiable Safety and Security Rules
 
@@ -108,7 +108,6 @@ For each PR-sized change:
   - Pre-commit hooks will auto-fix many issues (formatting, linting, whitespace).
   - Always review and commit these auto-fixes as part of your change.
 - Add/adjust tests for new behavior.
-  - Python: pytest tests in `tests/`
   - PowerShell: Pester tests in `tests/PowerShell/`
 - Keep changes small and reviewable; avoid "big bang" refactors.
 - Update docs/spec only if behavior is intentionally changed (and note why).
@@ -135,18 +134,8 @@ This repository uses modular instruction files for language-specific standards:
 | --- | --- | --- |
 | Markdown/Docs | `.github/instructions/docs.instructions.md` | `**/*.md` |
 | PowerShell | `.github/instructions/powershell.instructions.md` | `**/*.ps1` |
-| Python | `.github/instructions/python.instructions.md` | `**/*.py` |
-| Terraform | `.github/instructions/terraform.instructions.md` | `**/*.tf`, `**/*.tfvars`, `**/*.tftest.hcl` |
 
-**Note:** The PowerShell instructions include comprehensive guidance on Pester testing. The Terraform instructions include comprehensive guidance on Terraform Test framework.
-
-**To customize for your project:**
-
-- Remove instruction files for languages you don't use
-- Add new instruction files for additional languages as needed
-- Update this table to reflect your project's languages
-
-> **Terraform note:** If your project does not use Terraform, remove the Terraform instruction file (`.github/instructions/terraform.instructions.md`), remove the Terraform row from the table above, and remove Terraform-related entries from the Linting Configurations and Testing Tools sections below.
+**Note:** The PowerShell instructions include comprehensive guidance on Pester testing.
 
 ## Agent Instruction Files
 
@@ -162,11 +151,6 @@ This repository includes agent instruction files at the repository root to suppo
 
 When modifying rules in `.github/copilot-instructions.md`, the corresponding content in all three agent files must also be updated to maintain consistency.
 
-**To customize for your project:**
-
-- Remove agent files for platforms you do not use
-- Keep rules synchronized between `.github/copilot-instructions.md` and any remaining agent files
-
 ## Linting Configurations
 
 This repository includes linting tool configurations that align with the coding standards:
@@ -175,7 +159,6 @@ This repository includes linting tool configurations that align with the coding 
 | --- | --- | --- |
 | PSScriptAnalyzer | `.github/linting/PSScriptAnalyzerSettings.psd1` | PowerShell formatting/linting (OTBS style) |
 | markdownlint | `.markdownlint.jsonc` | Markdown linting |
-| TFLint | `.tflint.hcl` | Terraform linting |
 
 ### Running Linters
 
@@ -191,39 +174,18 @@ npm run lint:md
 Invoke-ScriptAnalyzer -Path .\script.ps1 -Settings .\.github\linting\PSScriptAnalyzerSettings.psd1
 ```
 
-**Terraform:**
-
-```bash
-terraform fmt -check -recursive
-tflint --recursive
-```
-
 ## Testing Tools
 
-This repository includes testing infrastructure for Python, PowerShell, and Terraform:
+This repository includes testing infrastructure for PowerShell:
 
 | Language | Framework | Configuration | Test Location |
 | --- | --- | --- | --- |
-| Python | pytest | `pyproject.toml` (`[tool.pytest.ini_options]`) | `tests/` |
 | PowerShell | Pester 5.x | Inline in `.github/workflows/powershell-ci.yml` | `tests/PowerShell/` |
-| Terraform | Terraform Test (requires Terraform 1.6+) | Built-in | `modules/*/tests/` or `tests/` |
 
 ### Running Tests
-
-**Python:**
-
-```bash
-pytest tests/ -v --cov --cov-report=term-missing
-```
 
 **PowerShell:**
 
 ```powershell
 Invoke-Pester -Path tests/ -Output Detailed
-```
-
-**Terraform:**
-
-```bash
-terraform test -verbose
 ```
