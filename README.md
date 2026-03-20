@@ -96,13 +96,14 @@ BigDACLEnergy supports three authentication methods (in priority order):
 
 ### Output
 
-Results are written to a UTF-8 encoded CSV file with the following columns:
+Results are written to a UTF-8 encoded CSV file without BOM with the
+following columns:
 
 | Column | Description |
 | --- | --- |
 | Resource | The AD object where the delegation is defined |
 | Trustee | The security principal granted the permission |
-| Trustee type | The type of the trustee (user, group, computer, etc.) |
+| Trustee type | The type of the trustee; one of: `User`, `Group`, `Computer`, `External` |
 | Category | The delegation category (e.g., full control, dangerous write) |
 | Details | Specific permission details and object type information |
 | Risk Level | Graduated severity: Critical, High, Medium, or Informational |

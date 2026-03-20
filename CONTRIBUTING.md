@@ -54,7 +54,9 @@ pipx install pre-commit
 - It manages its own isolated environments for hooks
 - Installing it globally or via `pipx` keeps it separate from project
   dependencies
-- CI workflows install `pre-commit` separately in their own steps
+- The optional `auto-fix-precommit` GitHub Actions workflow installs and
+  runs `pre-commit` in its own job; primary CI workflows run markdownlint
+  and PowerShell checks directly
 
 ### 4. Install Pre-commit Hooks
 
