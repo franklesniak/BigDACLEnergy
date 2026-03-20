@@ -149,11 +149,12 @@ automatically:
 | --- | --- | --- |
 | Markdown Lint | `.github/workflows/markdownlint.yml` | Validates markdown formatting |
 | PowerShell CI | `.github/workflows/powershell-ci.yml` | Runs PSScriptAnalyzer and Pester tests on PowerShell files |
-| Auto-fix Pre-commit | `.github/workflows/auto-fix-precommit.yml` | Automatically commits pre-commit fixes on PRs (optional) |
+| Auto-fix Pre-commit | `.github/workflows/auto-fix-precommit.yml` | Automatically commits pre-commit fixes on `copilot/**` branches when pushed by the Copilot Coding Agent (optional) |
 
 The **Auto-fix Pre-commit** workflow is particularly useful for AI-assisted
 development (e.g., GitHub Copilot Coding Agent) as it automatically commits
-formatting fixes to PR branches.
+formatting fixes to `copilot/**` branches. It only triggers on pushes to
+those branches by the `copilot-swe-agent[bot]` actor.
 
 ## Making Changes
 

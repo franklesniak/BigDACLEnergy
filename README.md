@@ -45,9 +45,11 @@ exports risk-scored findings to CSV.
 
 ## Prerequisites
 
-- **Windows PowerShell 1.0–5.1** or **PowerShell 7.x+** (Windows) — The
+- **Windows PowerShell 1.0–5.1** on Windows Server 2003 and later — The
   tool targets .NET Framework 2.0 compatibility for maximum portability
-  across Windows Server environments (Windows Server 2003 and later)
+  across legacy Windows Server environments
+- **PowerShell 7.x+** on supported modern Windows versions — For current,
+  supported Windows platforms that run PowerShell 7.x or later
 - **Active Directory environment** — The tool requires access to an AD
   forest with appropriate read permissions on directory objects and security
   descriptors
@@ -68,7 +70,7 @@ exports findings to CSV.
 .\BigDACLEnergy.ps1 -Csv .\results.csv
 
 # Scan with increased verbosity
-.\BigDACLEnergy.ps1 -Verbose
+.\BigDACLEnergy.ps1 -Csv .\results.csv -Verbose
 
 # Export only findings at or above a risk threshold
 .\BigDACLEnergy.ps1 -RiskCsv .\risk-findings.csv -RiskLevel High
@@ -103,13 +105,18 @@ following columns:
 
 | Column | Description |
 | --- | --- |
-| Resource | The AD object where the delegation is defined |
-| Trustee | The security principal granted the permission |
-| Trustee type | The type of the trustee; one of: `User`, `Group`, `Computer`, `External` |
-| Category | The delegation category (e.g., full control, dangerous write) |
-| Details | Specific permission details and object type information |
-| Risk Level | Graduated severity when present: `Critical`, `High`, `Medium`, or `Informational`; may be empty when no risk rule matches |
-| Current User Can Exploit | `Yes` when exploitable by the current user; otherwise empty |
+| Resource | The resource identifier associated with the finding. This is often an AD object (such as a DN), but may also be a schema reference or the literal `Global`, as defined in the spec. |
+| Trustee | The trustee associated with the finding. This may be a resolved security principal, the literal `Global`, or an unresolvable raw SID, depending on what the analysis can determine. |
+| Trustee type | A high-level classification of the trustee when resolvable (for example: `User`, `Group`, `Computer`, `External`). This field may be empty or take other values as defined in the spec. |
+| Category | The finding category. This includes delegation-related categories (e.g., full control, dangerous write) and other categories such as `Warning`, `Owner`, `Allow ACE`, and additional values defined in the spec. |
+| Details | Specific permission details and object type information relevant to the finding. |
+| Risk Level | Graduated severity when present: `Critical`, `High`, `Medium`, or `Informational`; may be empty when no risk rule matches. |
+| Current User Can Exploit | `Yes` when the finding is determined to be exploitable by the current user context; otherwise empty. |
+
+For the complete and authoritative CSV schema, including all allowed values
+and edge cases for each column, see
+[docs/spec/specifications.md](docs/spec/specifications.md), sections 10 and
+16.2.
 
 ## Contributing
 
