@@ -432,13 +432,38 @@ The `RawSecurityDescriptor` constructor accepts SDDL directly. The resulting `$s
 
 **Important**: SDDL domain-relative aliases (e.g., `DA` for Domain Admins, `DU` for Domain Users) resolve to different SIDs in each domain, while forest-root-only aliases (`EA` for Enterprise Admins, `SA` for Schema Admins) always resolve to the forest root domain's SID. Since `New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddlString` resolves aliases using only the calling process's security context (i.e., the current domain), schema default SDDL strings must be parsed **once per known domain NC** with manual alias substitution.
 
-**Per-domain SDDL alias expansion mechanism:** For each `ActiveDirectorySchemaClass` with a `DefaultObjectSecurityDescriptor`, the tool must manually substitute SDDL abbreviations with the appropriate domain's SIDs before parsing. Specifically, for each known domain NC, replace per-domain aliases like `DA` → `S-1-5-21-<domainSid>-512`, `DU` → `S-1-5-21-<domainSid>-513`, `PA` (Group Policy Creator Owners) → `S-1-5-21-<domainSid>-520`, etc. Forest-root-only aliases — `EA` (Enterprise Admins, RID 519) and `SA` (Schema Admins, RID 518) — MUST always resolve to the **forest root domain** SID regardless of which domain is being processed. After substitution, parse the expanded string:
+**Per-domain SDDL alias expansion mechanism:** For each `ActiveDirectorySchemaClass` with a `DefaultObjectSecurityDescriptor`, the tool MUST manually substitute domain-relative SDDL abbreviations with the appropriate domain's SIDs before parsing. Specifically, for each known domain NC, the tool MUST substitute the following per-domain aliases in the SDDL string (where `<domainSid>` is the full SID string of the domain being processed, e.g., `S-1-5-21-3623811015-3361044348-30300820`):
+
+| Alias | Description | Target SID |
+| --- | --- | --- |
+| `LA` | Administrator | `<domainSid>-500` |
+| `LG` | Guest | `<domainSid>-501` |
+| `DA` | Domain Admins | `<domainSid>-512` |
+| `DU` | Domain Users | `<domainSid>-513` |
+| `DG` | Domain Guests | `<domainSid>-514` |
+| `DC` | Domain Computers | `<domainSid>-515` |
+| `DD` | Domain Controllers | `<domainSid>-516` |
+| `CA` | Cert Publishers | `<domainSid>-517` |
+| `PA` | Group Policy Creator Owners | `<domainSid>-520` |
+| `CN` | Cloneable Domain Controllers | `<domainSid>-522` |
+| `AP` | Protected Users | `<domainSid>-525` |
+| `KA` | Key Admins | `<domainSid>-526` |
+| `RS` | RAS and IAS Servers | `<domainSid>-553` |
+
+Forest-root-only aliases — these MUST always resolve to the **forest root domain** SID regardless of which domain is being processed:
+
+| Alias | Description | Target SID |
+| --- | --- | --- |
+| `SA` | Schema Admins | `<forestRootSid>-518` |
+| `EA` | Enterprise Admins | `<forestRootSid>-519` |
+
+All other SDDL abbreviations (e.g., `BA`, `AU`, `SY`, `CO`, `WD`) correspond to well-known SIDs that are identical across all domains and MUST be passed unchanged to `System.Security.AccessControl.RawSecurityDescriptor` for resolution. After substitution, parse the expanded string:
 
 ```powershell
 $sd = New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $expandedSddl
 ```
 
-The set of known domain NCs and their SIDs is collected during domain enumeration (see Section 1, "Known Domain NC Definition") and Section 9 (data processing pipeline).
+The set of known domain NCs and their SIDs is collected during domain enumeration (see Section 1, "Known Domain NC Definition"): the tool MUST enumerate all writable domain naming contexts in the current forest and cache each domain NC's SID before performing SDDL alias expansion.
 
 ### Owner Retrieval
 
