@@ -378,19 +378,231 @@ This reduces network traffic compared to retrieving all attributes. The `disting
 
 ## 4. Security Descriptor Retrieval and ACE Processing
 
-<!-- TODO: To be completed in a future work effort -->
+### Security Descriptor Access
+
+Security descriptors are accessed through managed .NET APIs exclusively. No raw Windows API calls (`IsValidSecurityDescriptor`, `GetSecurityDescriptorOwner`, `GetAce`, etc.) are used.
+
+For objects retrieved via `DirectorySearcher`:
+
+- **Primary approach**: Read `nTSecurityDescriptor` as `byte[]` from `$result.Properties["nTSecurityDescriptor"]` and parse with `New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sdBytes, 0`. This leverages the `PropertiesToLoad` and `SecurityMasks` optimizations already configured on the `DirectorySearcher`, avoiding additional LDAP round-trips. To obtain an `ActiveDirectorySecurity` object (needed for `GetAccessRules()`), construct one from the binary data:
+
+```powershell
+$sdBytes = [byte[]]$result.Properties["nTSecurityDescriptor"][0]
+$security = New-Object -TypeName System.DirectoryServices.ActiveDirectorySecurity
+$security.SetSecurityDescriptorBinaryForm($sdBytes)
+```
+
+- **Fallback**: Access `$result.GetDirectoryEntry().ObjectSecurity` to obtain an `ActiveDirectorySecurity` object directly. **Note:** This forces an additional LDAP bind/read per result, negating `PropertiesToLoad`/`SecurityMasks` optimizations. Use only when the binary SD is unavailable from the search result. **Important:** `GetDirectoryEntry()` returns a new `DirectoryEntry` that implements `IDisposable`. When using this fallback, the returned `DirectoryEntry` MUST be disposed (via explicit `.Dispose()`) to release unmanaged ADSI handles, especially inside loops processing many results. Since `try/finally` MUST NOT be used (see Section 1), disposal MUST be performed using the `trap`-based error handling pattern to ensure `.Dispose()` is reached even if an error occurs.
+
+### ACE Extraction
+
+ACEs are retrieved from the `ActiveDirectorySecurity` instance constructed from the binary `nTSecurityDescriptor` (see "Security Descriptor Access" above):
+
+```powershell
+# '$security' is the ActiveDirectorySecurity built from nTSecurityDescriptor bytes
+$rules = $security.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier])
+```
+
+Passing `$false` for `includeInherited` retrieves only explicit ACEs directly, replacing the manual `INHERITED_ACE` flag check. The `$security` variable here refers to the `ActiveDirectorySecurity` object populated via `SetSecurityDescriptorBinaryForm()` from the `nTSecurityDescriptor` byte array — **not** from `$entry.ObjectSecurity`, which would force an additional LDAP round-trip per result.
+
+Each `ActiveDirectoryAccessRule` exposes:
+
+| Property | Description |
+| --- | --- |
+| `AccessControlType` | `Allow` or `Deny` |
+| `ActiveDirectoryRights` | Flags enum of access rights granted/denied |
+| `ObjectType` | GUID identifying the specific property, property set, extended right, or child class |
+| `InheritedObjectType` | GUID identifying which child object type the ACE applies to |
+| `IdentityReference` | Trustee SID (castable to `SecurityIdentifier`) |
+| `InheritanceFlags` | `ContainerInherit`, `ObjectInherit` |
+| `PropagationFlags` | `InheritOnly`, `NoPropagateInherit` |
+| `IsInherited` | Whether the ACE is inherited (always `$false` when retrieved with `includeInherited = $false`) |
+
+> **Version note:** `ActiveDirectoryRights` is a `[Flags]` enum in `System.DirectoryServices`, available in .NET Framework 2.0 and all later versions. All properties listed above are accessed natively in PowerShell — no special syntax is required beyond standard `.Property` access on the `ActiveDirectoryAccessRule` object.
+
+### SDDL Parsing for Schema Defaults
+
+Schema `defaultSecurityDescriptor` SDDL strings are parsed using:
+
+```powershell
+$sd = New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddlString
+```
+
+The `RawSecurityDescriptor` constructor accepts SDDL directly. The resulting `$sd.DiscretionaryAcl` provides ACE enumeration through `CommonAce` and `ObjectAce` types in `System.Security.AccessControl`.
+
+**Important**: SDDL domain-relative aliases (e.g., `DA` for Domain Admins, `DU` for Domain Users) resolve to different SIDs in each domain, while forest-root-only aliases (`EA` for Enterprise Admins, `SA` for Schema Admins) always resolve to the forest root domain's SID. Since `New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddlString` resolves aliases using only the calling process's security context (i.e., the current domain), schema default SDDL strings must be parsed **once per known domain NC** with manual alias substitution. See Step 4 in Section 9 for the full per-domain expansion mechanism.
+
+### Owner Retrieval
+
+The object owner is retrieved via:
+
+```powershell
+$owner = $security.GetOwner([System.Security.Principal.SecurityIdentifier])
+```
+
+> **Note:** `GetOwner()` requires that the security descriptor was retrieved with `SecurityMasks.Owner` included (as in the main scan's `[System.DirectoryServices.SecurityMasks]::Owner -bor [System.DirectoryServices.SecurityMasks]::Dacl`). When only `[System.DirectoryServices.SecurityMasks]::Dacl` was requested (e.g., for AdminSDHolder), the Owner field is not present in the retrieved bytes and `GetOwner()` should not be called.
+
+### Callback ACE Handling
+
+**Documented limitation:** Callback ACE types (`ACCESS_ALLOWED_CALLBACK_ACE_TYPE`, `ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE`, etc.) are returned by `GetAccessRules()` as `ActiveDirectoryAccessRule` objects, but the conditional expression data embedded in the ACE is not exposed by the .NET Framework. Callback ACEs are reported as-is, treated identically to their non-callback counterparts, without evaluation of their conditional expressions. The reported permissions may not reflect the effective conditional access.
+
+### ACE Type Coverage
+
+ACE type coverage is determined by the .NET Framework's `GetAccessRules()` implementation, which parses all supported ACE types and exposes them through `ActiveDirectoryAccessRule`. The tool does not need to enumerate ACE types manually. ACE types that the framework does not expose would appear as `CustomAce` objects in the raw `$sd.DiscretionaryAcl` collection (from `RawSecurityDescriptor`); these are not processed by the tool.
+
+### Objects Inspected
+
+Every object in every naming context is inspected. The tool does not filter by object class during the LDAP query — it retrieves all objects via `(objectClass=*)` and processes each one's security descriptor.
 
 ---
 
 ## 5. Detection of Inherited vs. Explicit Permissions
 
-<!-- TODO: To be completed in a future work effort -->
+### Inherited ACE Filtering
+
+Only explicitly assigned (non-inherited) ACEs are included in the output. This is achieved by passing `$false` for `includeInherited` to `GetAccessRules()`:
+
+```powershell
+$rules = $security.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier])
+```
+
+This eliminates the need for manual `INHERITED_ACE` flag checking. The tool's goal is to report delegations that were explicitly configured, not those that flow down from parent containers through inheritance.
 
 ---
 
 ## 6. Filtering of Default or Built-in Permissions
 
-<!-- TODO: To be completed in a future work effort -->
+### Schema Default Security Descriptors
+
+Each AD class can have a `defaultSecurityDescriptor` attribute in SDDL form, accessed via `ActiveDirectorySchemaClass.DefaultObjectSecurityDescriptor`. The tool parses these for every class and computes the ACEs that would be derived by inheritance from the schema defaults for each object's class. An ACE that matches a schema default is excluded from the output.
+
+The ACE comparison function compares two ACEs while ignoring:
+
+- **Read-only access rights**: `[System.DirectoryServices.ActiveDirectoryRights]::ReadProperty`, `[System.DirectoryServices.ActiveDirectoryRights]::ListChildren`, `[System.DirectoryServices.ActiveDirectoryRights]::ReadControl`, `[System.DirectoryServices.ActiveDirectoryRights]::ListObject`
+- **Object inherit flag**: `[System.Security.AccessControl.InheritanceFlags]::ObjectInherit`. The `OBJECT_INHERIT_ACE` flag causes an ACE to be inherited by non-container (leaf) child objects, while `ContainerInherit` causes inheritance to container child objects. The tool masks out this flag before comparing ACEs. **This is an intentional design simplification**, not a claim about AD's object model. Leaf objects do exist in AD (e.g., individual DNS records in AD-integrated DNS zones, certain system objects), and ignoring `OBJECT_INHERIT_ACE` may produce incorrect results for ACEs that target these objects. This trade-off is accepted because the flag has no effect on container objects (which represent the tool's primary analysis targets), and preserving it would introduce false positives in schema default ACE comparison. This is documented as a known limitation.
+
+**False-negative risk:** An administrator may intentionally set an explicit ACE that happens to match a schema default. Excluding these ACEs means the tool will not report them. This trade-off is documented as a known limitation. A future enhancement could provide a flag to expose these matches, similar to `-ShowBuiltin`.
+
+### Default SD Computation for Multiple Classes
+
+The tool computes default security descriptors based on the object's most-specific class (the last value in the multi-valued `objectClass` attribute). Active Directory uses the union of inherited ACEs from all structural classes in the hierarchy. If a parent class has a `defaultSecurityDescriptor` that introduces ACEs not present in the most-specific class's default, those ACEs may not be correctly filtered. This is documented as a known limitation.
+
+### Creator Owner Handling in Schema Defaults
+
+When computing inherited ACEs from schema defaults, if the parent ACE's trustee is the `Creator Owner` SID (`S-1-3-0`), it is replaced by the actual owner SID of the child object (mirroring AD behavior). Both the replaced and original ACEs are produced as defaults, so an explicit ACE matching either version is filtered.
+
+**Note:** If the object's owner has changed since creation, the ACE with the original creator's SID would no longer match the owner-replaced version. The tool uses the current owner SID for this comparison.
+
+### Ignored Trustee SIDs
+
+ACEs for the following well-known SIDs are suppressed by default. These are highly-privileged or default trustees whose ACEs are usually not actionable for delegation review. They can be re-enabled via `-ShowIgnoredTrustees`:
+
+| SID | Identity |
+| --- | --- |
+| `S-1-5-10` | SELF |
+| `S-1-5-18` | Local System |
+| `S-1-5-20` | Network Service |
+| `S-1-5-32-544` | BUILTIN\Administrators |
+| `S-1-5-9` | Enterprise Domain Controllers |
+| `<domain SID>-512` | Domain Admins (per domain) |
+| `<domain SID>-516` | Domain Controllers (per domain) |
+| `<forest root domain SID>-518` | Schema Admins (forest root domain only) |
+| `<forest root domain SID>-519` | Enterprise Admins (forest root domain only) |
+
+**Note:** Account Operators (`S-1-5-32-548`), Server Operators (`S-1-5-32-549`), Print Operators (`S-1-5-32-550`), and Backup Operators (`S-1-5-32-551`) are **reported by default** and are NOT in the suppressed list. These groups are well-known attack vectors in Active Directory, and suppressing their ACEs by default could give a false sense of security. Security auditors specifically need visibility into what these groups can do.
+
+### Configurable Ignored Trustee List
+
+The `-ShowIgnoredTrustees` CLI option causes the tool to report ACEs for all trustees, including those in the default suppressed list. This allows auditors to see the full picture when needed.
+
+### Read-Only Access Rights
+
+ACEs whose access mask, after masking out read-only rights, results in zero are discarded. The ignored (read-only) access rights are defined using the `ActiveDirectoryRights` enum:
+
+```powershell
+$ignoredRights = [System.DirectoryServices.ActiveDirectoryRights]::ReadProperty -bor
+    [System.DirectoryServices.ActiveDirectoryRights]::ListChildren -bor
+    [System.DirectoryServices.ActiveDirectoryRights]::ReadControl -bor
+    [System.DirectoryServices.ActiveDirectoryRights]::ListObject
+
+if (([int]$rule.ActiveDirectoryRights -band (-bnot [int]$ignoredRights)) -eq 0) {
+    # ACE grants only read-only rights; discard
+}
+```
+
+> **Version note — bitwise operations on enums:** `ActiveDirectoryRights` is a `[Flags]` enum in `System.DirectoryServices`, available in .NET Framework 2.0 and all later versions. In PowerShell 1.0/2.0, the `-bnot` operator on an enum value may not produce the expected result without first casting to `[int]`. The `[int]` cast shown above ensures correct bitwise NOT behavior across all supported PowerShell versions. On PowerShell 3.0+ (.NET Framework 4.0+), the cast is not strictly required but is harmless and improves readability.
+>
+> For flag checks, `-band` is the primary approach and works across all supported versions. On PowerShell 3.0+ (.NET 4.0+), `$rule.ActiveDirectoryRights.HasFlag($flagValue)` can be used as an alternative for single-flag checks, but `-band` is preferred for simplicity and cross-version consistency.
+>
+> When converting string representations of rights to enum values (e.g., when parsing delegation definition files), use `[System.Enum]::Parse([System.DirectoryServices.ActiveDirectoryRights], $rightsName)` for PowerShell 1.0 compatibility. On PowerShell 2.0+, direct casting via `[System.DirectoryServices.ActiveDirectoryRights]$rightsName` also works.
+
+The output reflects the full (unmasked) access rights of an ACE. The masking is used only for the "is this ACE interesting?" decision. In `-ShowRaw` mode, the complete access mask is displayed.
+
+### Delete Protection ACEs
+
+Deny ACEs for `Everyone` (`S-1-1-0`) are suppressed only when the ACE **exclusively** denies delete-related rights (`Delete`, `DeleteChild`, and/or `DeleteTree`). If the ACE also denies other rights beyond these, it is NOT suppressed. This tightened check prevents hiding deny ACEs that restrict more than just deletion.
+
+```powershell
+$deleteRights = [System.DirectoryServices.ActiveDirectoryRights]::Delete -bor
+    [System.DirectoryServices.ActiveDirectoryRights]::DeleteChild -bor
+    [System.DirectoryServices.ActiveDirectoryRights]::DeleteTree
+
+# Suppress only if the ACE denies exclusively delete rights
+if ($rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Deny -and $trusteeSid.Equals($everyoneSid) -and (([int]$rule.ActiveDirectoryRights -band (-bnot [int]$deleteRights)) -eq 0)) {
+    # Suppress this standard delete-protection entry
+}
+```
+
+### Change Password Deny ACEs
+
+Deny ACEs for `Everyone` that deny the `Change Password` control access right are suppressed, as these are set by tools like `dsa.msc` for the "Cannot change password" option.
+
+### AdminSDHolder ACEs
+
+For objects where `adminCount != 0` **and** `$security.AreAccessRulesProtected` is `$true`, ACEs that appear in the AdminSDHolder DACL are suppressed. This is because objects marked as protected (commonly indicated by `adminCount != 0`) have their security descriptors — including inheritance blocking — periodically stamped (copied) from AdminSDHolder by SDProp. Both conditions are required: `adminCount` alone is unreliable because it is notoriously stale — it is typically present on objects that are or were members of protected groups, but it is not always cleared when an object is removed from such a group. If `adminCount != 0` but `$security.AreAccessRulesProtected` is `$false`, the object is likely no longer in the population of objects whose security descriptors are stamped from AdminSDHolder by SDProp, and its explicit ACEs represent real delegations that should be reported (not filtered).
+
+> **Note:** This tool determines AdminSDHolder-related suppression based on per-object state (`adminCount` and `AreAccessRulesProtected`) rather than inferring protection from membership in a list of "protected groups." This avoids brittle heuristics based on group names (which can be localized or renamed) or static protected-group lists (which can be impacted by environment customizations).
+
+The `adminCount` attribute is parsed as an integer, not a string:
+
+```powershell
+$adminCount = 0
+if ($result.Properties.Contains("adminCount")) {
+    $adminCount = [int]$result.Properties["adminCount"][0]
+}
+```
+
+Any nonzero integer value indicates that the object is or has been treated as protected; however, effective AdminSDHolder ACE suppression still relies on the combined check described above (`adminCount != 0` and `$security.AreAccessRulesProtected -eq $true`).
+
+**Stale adminCount caveat:** The `adminCount` attribute is notoriously stale in AD — it is typically present on objects that are or were members of protected groups, but it is not always cleared when an object is removed from such a group. Additionally, `adminCount` can be manually modified. Formerly-protected objects may have `adminCount=1` but are no longer in the population of objects whose security descriptors are stamped from AdminSDHolder by SDProp. Because AdminSDHolder ACE filtering requires both `adminCount != 0` and `$security.AreAccessRulesProtected -eq $true` (see above), stale `adminCount` objects whose inheritance has been restored will correctly have their ACEs reported rather than suppressed. If `adminCount != 0` but `$security.AreAccessRulesProtected` is `$false`, the tool logs a warning noting the inconsistency, as this may indicate a stale `adminCount`.
+
+### Ignored Control Access Rights
+
+ACEs granting only `ExtendedRight` for specific control access rights that do not grant meaningful control over a resource are suppressed:
+
+- `Apply Group Policy` — applying a GPO does not mean controlling it
+- `Allow a DC to create a clone of itself` — if an attacker can impersonate a DC, cloning is not the primary concern
+
+### Ignored DACL Protected Flags
+
+DACL inheritance blocking (detected via `$security.AreAccessRulesProtected`) is not reported as a warning for:
+
+- Objects of class `groupPolicyContainer` (GPOs block inheritance by design)
+- Objects with `adminCount != 0` (expected to have inheritance blocked as part of AdminSDHolder protection)
+- Specific well-known containers: `CN=AdminSDHolder,CN=System`, `CN=VolumeTable,CN=FileLinks,CN=System`, `CN=Keys`, `CN=WMIPolicy,CN=System`, `CN=SOM,CN=WMIPolicy,CN=System`
+
+### Built-in Delegation Definitions
+
+A set of built-in delegation definitions is shipped with the tool, either embedded within the script (e.g., as a here-string or data section) or as an external XML file distributed alongside the script. These define expected ACEs for well-known delegations (e.g., DnsAdmins on DNS zones, Group Policy Creator Owners on WMI policies). By default, matched built-in delegations are excluded from CSV output unless `-ShowBuiltin` is specified.
+
+### RODC-Specific Filtering
+
+The tool suppresses several ACE patterns specific to Read-Only Domain Controllers (RODCs):
+
+- Change Password / Reset Password control access by an RODC on its secondary KrbTgt account
+- `CreateChild` on `nTDSDSA` objects by the RODC referenced from the server object, and `Delete` on `nTDSDSA` objects only when the ACE has the `InheritOnly` propagation flag set
+- `WriteProperty` for `schedule` and `fromServer` attributes on `nTDSConnection` objects by the owning RODC
+- Validated write for `dnsHostName` on `server` objects by the referenced RODC
 
 ---
 
