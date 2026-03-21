@@ -207,8 +207,8 @@ function Test-Windows {
     # .NOTES
     # This function also supports the use of a positional parameter instead of
     # a named parameter. If a positional parameter is used instead of a named
-    # parameter, then one positional parameter is required: it must be the
-    # version number of the running version of PowerShell. If the version of
+    # parameter, then the first positional parameter must be the version number
+    # of the running version of PowerShell. If the version of
     # PowerShell is already known, it can be passed in to this function to
     # avoid the overhead of unnecessarily determining the version of
     # PowerShell. If this parameter is not supplied, the function will
@@ -221,7 +221,7 @@ function Test-Windows {
     # 6.x, and PowerShell 7.x. This function supports Windows, and when run on
     # PowerShell Core 6.x or PowerShell 7.x, also supports macOS and Linux.
     #
-    # Version: 1.1.20260109.0
+    # Version: 1.1.20260321.1
 
     param (
         [version]$PSVersion = ([version]'0.0')
