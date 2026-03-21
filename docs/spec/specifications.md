@@ -145,7 +145,7 @@ try {
 
 **Resource cleanup in PowerShell:** `DirectoryEntry` implements `IDisposable` and MUST be disposed after use to avoid leaking unmanaged ADSI handles. PowerShell does not have a `using` statement equivalent to C#'s `using (IDisposable)` pattern — even in PowerShell 5.1, the `using` keyword is only for namespace and module imports, not for automatic `IDisposable` cleanup. The recommended pattern for all PowerShell versions is `try/finally` with explicit `.Dispose()` calls, as shown above. This applies to all `DirectoryEntry` and `DirectorySearcher` instances throughout the tool.
 
-> **PowerShell 1.0 note:** The `try/finally` construct is not available in PowerShell 1.0 (it was introduced in PowerShell 2.0). On PowerShell 1.0, explicit `.Dispose()` calls MUST be placed after the resource is no longer needed, combined with the `trap`-based error handling pattern (see Section 0 and the repository coding standards) to ensure disposal occurs even when errors are encountered.
+> **PowerShell 1.0 note:** The `try/finally` construct is not available in PowerShell 1.0 (it was introduced in PowerShell 2.0). On PowerShell 1.0, explicit `.Dispose()` calls MUST be placed after the resource is no longer needed, combined with the `trap`-based error handling pattern (see Section 0 and the repository coding standards) to provide best-effort disposal when errors are encountered. Note that the `trap`-based pattern does not provide the same guaranteed cleanup semantics as `try/finally` — it relies on the `trap` block suppressing errors so that subsequent `.Dispose()` calls are reached during normal control flow.
 
 The following attributes are read from the RootDSE:
 
@@ -248,7 +248,7 @@ $password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
 | Memory safety | Password in plain text from the start | Password in plain text after conversion |
 | Complexity | More code (loop, key handling) | Less code, but conversion step required |
 
-In both cases, the password ultimately exists as a plain `[string]` in memory because `DirectoryEntry` requires it. The `SecureString` approach provides no additional security benefit for this specific use case, since the plain text conversion is required immediately. Approach 1 is preferred for maximum version compatibility and directness.
+In both cases, the password ultimately exists as a plain `[string]` in memory because `DirectoryEntry` requires it. The `SecureString` approach provides a brief window of encrypted in-memory storage during the input phase, but the plain text conversion is required immediately afterward for the `DirectoryEntry` constructor, limiting the practical security benefit. Approach 1 is preferred for maximum version compatibility and directness.
 
 ### LDAP Filters Used
 
