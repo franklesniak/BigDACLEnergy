@@ -378,7 +378,9 @@ Deny ACEs for `Everyone` that deny the `Change Password` control access right ar
 
 ### AdminSDHolder ACEs
 
-For objects where `adminCount != 0` **and** `AreAccessRulesProtected` is `true`, ACEs that appear in the AdminSDHolder DACL are suppressed. This is because the SDProp process copies the AdminSDHolder's DACL onto protected objects and blocks inheritance. Both conditions are required: `adminCount` alone is unreliable because it is notoriously stale — it is set when an object is added to a protected group but not always cleared when removed. If `adminCount != 0` but `AreAccessRulesProtected` is `false`, the object is likely no longer SDProp-managed, and its explicit ACEs represent real delegations that should be reported (not filtered).
+For objects where `adminCount != 0` **and** `AreAccessRulesProtected` is `true`, ACEs that appear in the AdminSDHolder DACL are suppressed. This is because objects marked as protected (commonly indicated by `adminCount != 0`) have their security descriptors — including inheritance blocking — periodically stamped (copied) from AdminSDHolder by SDProp. Both conditions are required: `adminCount` alone is unreliable because it is notoriously stale — it is typically present on objects that are or were members of protected groups, but it is not always cleared when an object is removed from such a group. If `adminCount != 0` but `AreAccessRulesProtected` is `false`, the object is likely no longer in the population of objects whose security descriptors are stamped from AdminSDHolder by SDProp, and its explicit ACEs represent real delegations that should be reported (not filtered).
+
+> **Note:** This tool determines AdminSDHolder-related suppression based on per-object state (`adminCount` and `AreAccessRulesProtected`) rather than inferring protection from membership in a list of "protected groups." This avoids brittle heuristics based on group names (which can be localized or renamed) or static protected-group lists (which can be impacted by environment customizations).
 
 The `adminCount` attribute is parsed as an integer, not a string:
 
@@ -388,9 +390,9 @@ int adminCount = result.Properties.Contains("adminCount")
     : 0;
 ```
 
-Any nonzero integer value indicates a protected object.
+Any nonzero integer value indicates that the object is or has been treated as protected; however, effective AdminSDHolder ACE suppression still relies on the combined check described above (`adminCount != 0` and `AreAccessRulesProtected == true`).
 
-**Stale adminCount caveat:** The `adminCount` attribute is notoriously stale in AD — it is set when an object is added to a protected group but not always cleared when removed. Formerly-protected objects may have `adminCount=1` but are no longer managed by SDProp. Because AdminSDHolder ACE filtering requires both `adminCount != 0` and `AreAccessRulesProtected == true` (see above), stale `adminCount` objects whose inheritance has been restored will correctly have their ACEs reported rather than suppressed. If `adminCount != 0` but `AreAccessRulesProtected` is `false`, the tool logs a warning to stderr noting the inconsistency, as this may indicate a stale `adminCount`.
+**Stale adminCount caveat:** The `adminCount` attribute is notoriously stale in AD — it is typically present on objects that are or were members of protected groups, but it is not always cleared when an object is removed from such a group. Additionally, `adminCount` can be manually modified. Formerly-protected objects may have `adminCount=1` but are no longer in the population of objects whose security descriptors are stamped from AdminSDHolder by SDProp. Because AdminSDHolder ACE filtering requires both `adminCount != 0` and `AreAccessRulesProtected == true` (see above), stale `adminCount` objects whose inheritance has been restored will correctly have their ACEs reported rather than suppressed. If `adminCount != 0` but `AreAccessRulesProtected` is `false`, the tool logs a warning to stderr noting the inconsistency, as this may indicate a stale `adminCount`.
 
 ### Ignored Control Access Rights
 
@@ -404,7 +406,7 @@ ACEs granting only `ExtendedRight` for specific control access rights that do no
 DACL inheritance blocking (detected via `ActiveDirectorySecurity.AreAccessRulesProtected`) is not reported as a warning for:
 
 - Objects of class `groupPolicyContainer` (GPOs block inheritance by design)
-- Objects with `adminCount != 0` (expected to block inheritance via SDProp)
+- Objects with `adminCount != 0` (expected to have inheritance blocked as part of AdminSDHolder protection)
 - Specific well-known containers: `CN=AdminSDHolder,CN=System`, `CN=VolumeTable,CN=FileLinks,CN=System`, `CN=Keys`, `CN=WMIPolicy,CN=System`, `CN=SOM,CN=WMIPolicy,CN=System`
 
 ### Built-in Delegation Definitions
@@ -1266,7 +1268,7 @@ The following resources are classified as Tier 0 by default. Resources are ident
 | # | Identification Method | Identity | Rationale |
 | --- | --- | --- | --- |
 | 15 | DN = `{domainDN}` (the domain root object) | Domain root object | ACEs here can grant domain-wide permissions via inheritance |
-| 16 | DN = `CN=AdminSDHolder,CN=System,{domainDN}` | AdminSDHolder | SDProp copies this DACL to all protected accounts |
+| 16 | DN = `CN=AdminSDHolder,CN=System,{domainDN}` | AdminSDHolder | SDProp periodically stamps this DACL onto objects marked as protected |
 | 17 | DN = `OU=Domain Controllers,{domainDN}` | Domain Controllers OU | Contains all DC machine accounts |
 | 18 | DN = `CN=Users,{domainDN}` | Users container | Default location for privileged accounts |
 | 19 | DN = `CN=Schema,CN=Configuration,{forestRootDN}` | Schema partition root | Controls the AD schema |
