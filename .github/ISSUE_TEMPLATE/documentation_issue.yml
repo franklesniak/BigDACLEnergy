@@ -1,22 +1,8 @@
-# =============================================================================
-# DOCUMENTATION ISSUE TEMPLATE
-# =============================================================================
-# For detailed design decisions and customization options, see:
-# .github/DESIGN_DECISIONS.md > Issue Template Design Decisions
-#
-# CUSTOMIZE: markers below indicate actionable customization points.
-# Look for `# CUSTOMIZE:` comments throughout this file.
-#
-# NOTE: The `documentation` label is a GitHub DEFAULT LABEL that exists in all
-# new repositories. If your org has renamed/deleted it, update accordingly.
-# =============================================================================
+# Documentation issue template
 
 name: 📚 Documentation Issue
 description: Report a typo, unclear instructions, broken link, or suggest documentation improvements
-# CUSTOMIZE: Adjust the title prefix to match your project's conventions
 title: "[Docs] "
-# CUSTOMIZE: Update these labels to match your repository's label taxonomy.
-# Ensure these labels exist in your repository or create them before using this template.
 labels:
   - documentation
   - triage
@@ -45,12 +31,6 @@ body:
     validations:
       required: true
 
-  # NOTE: Placeholder uses simple file paths rather than full URLs with OWNER/REPO
-  # to avoid reporters pasting literal placeholders. Relative paths work for most
-  # documentation issues.
-  # ACTION ITEM: After setting up your repository, you may optionally update this
-  # placeholder to include a literal URL example from your repository (e.g.,
-  # "e.g., https://github.com/your-org/your-repo/blob/HEAD/README.md#usage or docs/guide.md").
   - type: input
     id: location
     attributes:
@@ -70,7 +50,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Remove if your project doesn't maintain versioned documentation
   - type: input
     id: doc_version
     attributes:
@@ -81,9 +60,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Adjust options to match your project's documentation structure.
-  # This field is optional by default. Downstream repos can make it required if
-  # they do structured documentation triage.
   - type: dropdown
     id: doc_issue_type
     attributes:
