@@ -133,7 +133,7 @@ The tool queries the following Active Directory partitions, discovered dynamical
 On startup, the tool reads the RootDSE to retrieve essential directory metadata:
 
 ```powershell
-$rootDSE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
+$rootDSE = New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://RootDSE"
 try {
     # Read attributes and use $rootDSE within this scope
 } finally {
@@ -157,7 +157,7 @@ The following attributes are read from the RootDSE:
 When targeting a specific server, the path format is `"LDAP://serverName/RootDSE"`:
 
 ```powershell
-$rootDSE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://serverName/RootDSE")
+$rootDSE = New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://serverName/RootDSE"
 ```
 
 The `supportedControl` attribute is not required, as .NET Framework 2.0's `DirectorySearcher.SecurityMasks` property handles SD flags control transparently.
@@ -170,11 +170,11 @@ A naming context is classified as a "known domain NC" if it appears as the `nCNa
 
 ### Recursive Traversal
 
-- **Schema partition**: Enumerated via `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetCurrentSchema().FindAllClasses()` and `.FindAllProperties()` for class GUIDs, attribute GUIDs, and default security descriptors.
+- **Schema partition**: Enumerated via `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetCurrentSchema().FindAllClasses()` and `.FindAllProperties()` for class GUIDs, attribute GUIDs, and default security descriptors. When `-Server` is specified, use `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetSchema($context)` instead, where `$context` is a `DirectoryContext` targeting the specified server.
 - **Configuration partition**: Queried with `DirectorySearcher` using `[System.DirectoryServices.SearchScope]::Subtree` to enumerate `controlAccessRight` objects for property sets, validated writes, and control access rights.
 - **Each naming context** (including schema, configuration, domain, and application partitions): Queried with `DirectorySearcher` using `Filter = "(objectClass=*)"` and `SearchScope = [System.DirectoryServices.SearchScope]::Subtree`, which returns every object in the partition recursively.
-- **AdminSDHolder**: Accessed via `New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,<domainDN>")` when the naming context is a known domain NC; otherwise `New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,<rootDomainNamingContext>")`. When `--server` is specified, the server prefix is included: `"LDAP://serverName/CN=AdminSDHolder,..."`.
-- **Individual SID lookups**: Performed via `New-Object System.DirectoryServices.DirectoryEntry("LDAP://<SID=S-1-5-...>")`. When `--server` is specified, the server prefix is included: `"LDAP://serverName/<SID=...>"`.
+- **AdminSDHolder**: Accessed via `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://CN=AdminSDHolder,CN=System,<domainDN>"` when the naming context is a known domain NC; otherwise `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://CN=AdminSDHolder,CN=System,<rootDomainNamingContext>"`. When `-Server` is specified, the server prefix is included: `"LDAP://serverName/CN=AdminSDHolder,..."`.
+- **Individual SID lookups**: Performed via `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://<SID=S-1-5-...>"`. When `-Server` is specified, the server prefix is included: `"LDAP://serverName/<SID=...>"`.
 
 ---
 
@@ -188,15 +188,15 @@ The tool uses .NET Framework `System.DirectoryServices.ActiveDirectory` managed 
 | --- | --- |
 | Auto-discover a DC for the current domain | `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` returns a `Domain` object with an auto-selected DC |
 | Auto-discover forest-level topology | `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()` returns the forest with all domains and sites |
-| Connect to a specific server | `New-Object System.DirectoryServices.DirectoryEntry("LDAP://serverName")` — connection is established lazily on first property access |
+| Connect to a specific server | `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://serverName"` — connection is established lazily on first property access |
 | Specify a port number | Encoded in the LDAP path: `"LDAP://serverName:636"` for LDAPS. **Note:** the port number alone does not enable TLS — `[System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer` must also be set (see LDAPS section below) |
 | Failure on non-domain-joined machine | `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` throws `ActiveDirectoryObjectNotFoundException`; the tool must catch this and report a clear error message |
 
-The tool should default to using `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` for DC discovery (which uses the Windows DC locator, i.e., AD sites and services native functionality, to select an optimal DC). An optional `--server` CLI argument allows targeting a specific DC. When `--server` is specified, all directory operations must be routed through that server for consistency:
+The tool should default to using `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` for DC discovery (which uses the Windows DC locator, i.e., AD sites and services native functionality, to select an optimal DC). An optional `-Server` CLI parameter allows targeting a specific DC. When `-Server` is specified, all directory operations must be routed through that server for consistency:
 
-- **Managed API context**: Use `New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext([System.DirectoryServices.ActiveDirectory.DirectoryContextType]::DirectoryServer, $serverName)` to construct `[System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($context)`, `[System.DirectoryServices.ActiveDirectory.Forest]::GetForest($context)`, and `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetSchema($context)` objects, ensuring DC locator routes through the specified server.
+- **Managed API context**: Use `New-Object -TypeName System.DirectoryServices.ActiveDirectory.DirectoryContext -ArgumentList ([System.DirectoryServices.ActiveDirectory.DirectoryContextType]::DirectoryServer), $serverName` to construct `[System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($context)`, `[System.DirectoryServices.ActiveDirectory.Forest]::GetForest($context)`, and `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetSchema($context)` objects, ensuring DC locator routes through the specified server.
 - **DirectoryEntry paths**: All `DirectoryEntry` LDAP paths must include the server prefix, e.g., `"LDAP://serverName/RootDSE"`, `"LDAP://serverName/CN=AdminSDHolder,..."`, `"LDAP://serverName/<SID=...>"`.
-- **DirectorySearcher instances**: The `SearchRoot` `DirectoryEntry` must include the server prefix when `--server` is specified.
+- **DirectorySearcher instances**: The `SearchRoot` `DirectoryEntry` must include the server prefix when `-Server` is specified.
 
 **General principle**: Prefer .NET Framework managed classes (`Domain`, `Forest`, `ActiveDirectorySchema`, `DirectoryContext` from the `System.DirectoryServices.ActiveDirectory` namespace) over raw LDAP paths wherever possible. These managed classes use the Windows DC locator for site-aware DC selection automatically, and respect `DirectoryContext` for explicit server targeting. Raw LDAP paths (via `DirectoryEntry`) should only be used when no managed equivalent exists (e.g., AdminSDHolder access, SID-based lookups, reading specific object attributes not exposed by managed classes).
 
@@ -204,13 +204,13 @@ The tool should default to using `[System.DirectoryServices.ActiveDirectory.Doma
 
 | Behavior | Implementation |
 | --- | --- |
-| Use current Windows SSO (Negotiate/SSPI) | `New-Object System.DirectoryServices.DirectoryEntry($path)` — uses the process identity automatically |
-| Explicit credentials | `New-Object System.DirectoryServices.DirectoryEntry($path, $username, $password, [System.DirectoryServices.AuthenticationTypes]::Secure)` |
-| Interactive password entry (`--password *`) | Read password via `[System.Console]::ReadKey($true)` in a loop, pass to `DirectoryEntry` constructor (see below) |
+| Use current Windows SSO (Negotiate/SSPI) | `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList $path` — uses the process identity automatically |
+| Explicit credentials | `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList $path, $username, $password, ([System.DirectoryServices.AuthenticationTypes]::Secure)` |
+| Interactive password entry (`-Password *`) | Read password via `[System.Console]::ReadKey($true)` in a loop, pass to `DirectoryEntry` constructor (see below) |
 
 #### Interactive Password Entry
 
-When the user specifies `--password *` (interactive prompt), the tool must read the password without echoing it to the console. Two approaches are available:
+When the user specifies `-Password *` (interactive prompt), the tool must read the password without echoing it to the console. Two approaches are available:
 
 **Approach 1: `[System.Console]::ReadKey($true)` (all PowerShell versions)**
 
@@ -230,7 +230,7 @@ while ($true) {
         [void]($passwordChars.Add($key.KeyChar))
     }
 }
-$password = New-Object System.String(, $passwordChars.ToArray())
+$password = New-Object -TypeName System.String -ArgumentList (, $passwordChars.ToArray())
 ```
 
 **Approach 2: `Read-Host -AsSecureString` (PowerShell 2.0+)**
@@ -296,7 +296,7 @@ The tool uses `[System.DirectoryServices.AuthenticationTypes]::Secure` by defaul
 
 ### Connection Endpoints
 
-DC discovery is handled by `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` and `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()`, which use the Windows DC locator (AD sites and services) for site-aware DC selection. The `--server` CLI option allows explicit server targeting via `New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext([System.DirectoryServices.ActiveDirectory.DirectoryContextType]::DirectoryServer, $serverName)`. Global Catalog access uses the `GC://` provider (e.g., `"GC://serverName"`), though the tool's operations primarily use the standard LDAP provider.
+DC discovery is handled by `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` and `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()`, which use the Windows DC locator (AD sites and services) for site-aware DC selection. The `-Server` CLI parameter allows explicit server targeting via `New-Object -TypeName System.DirectoryServices.ActiveDirectory.DirectoryContext -ArgumentList ([System.DirectoryServices.ActiveDirectory.DirectoryContextType]::DirectoryServer), $serverName`. Global Catalog access uses the `GC://` provider (e.g., `"GC://serverName"`), though the tool's operations primarily use the standard LDAP provider.
 
 ---
 

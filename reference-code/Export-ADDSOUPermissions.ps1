@@ -1,4 +1,4 @@
-﻿# .SYNOPSIS
+# .SYNOPSIS
 # Exports Active Directory Domain Services (AD DS) organizational unit (OU)
 # permissions to a CSV file.
 #
@@ -2837,7 +2837,7 @@ function Get-ADObjectSafely {
     # System.Int32. Get-ADObjectSafely returns an integer status code.
     # 0 means success; the AD object was retrieved and stored in the
     # reference parameter. -1 means failure; the AD object could not
-    # be retrieved (or — on PowerShell 7.x — the ActiveDirectory
+    # be retrieved (or -- on PowerShell 7.x -- the ActiveDirectory
     # module could not be loaded via the Windows PowerShell
     # Compatibility layer).
     #
@@ -3300,7 +3300,7 @@ function Export-ADDSOUPermission {
     # Demonstrates checking the return code and displaying a status message
     # using the version-conditional Write-Information / Write-Verbose
     # pattern. Returns 0 on success, -1 on failure (wrong OS, output
-    # file not writable, or — on PowerShell 7.x — ActiveDirectory
+    # file not writable, or -- on PowerShell 7.x -- ActiveDirectory
     # module could not be loaded).
     #
     # .EXAMPLE

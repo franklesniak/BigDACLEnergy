@@ -39,6 +39,7 @@ permissions:
 
 jobs:
   lint:
+    name: Lint (PSScriptAnalyzer)
     runs-on: ubuntu-latest
 
     steps:
@@ -76,11 +77,38 @@ jobs:
           $ps1Files = Get-ChildItem -Path . -Filter "*.ps1" -Recurse -File |
             Where-Object { $_.FullName -notmatch "node_modules" }
 
+          # Per-file rule exclusions for files that cannot be modified to
+          # satisfy certain rules (e.g., v1.0-targeted templates with
+          # intentionally unused parameters, or v1.0 scripts that cannot
+          # use [CmdletBinding(SupportsShouldProcess)] attributes).
+          $perFileExclusions = @{
+            '_RobustCloudServiceFunctionTemplate.ps1' = @(
+              'PSReviewUnusedParameter',
+              'PSUseDeclaredVarsMoreThanAssignments'
+            )
+            '_SimpleFunctionTemplate.ps1' = @(
+              'PSReviewUnusedParameter',
+              'PSUseDeclaredVarsMoreThanAssignments'
+            )
+            'Test-FileWriteability.ps1' = @(
+              'PSUseShouldProcessForStateChangingFunctions'
+            )
+            'Export-ADDSOUPermissions.ps1' = @(
+              'PSUseShouldProcessForStateChangingFunctions'
+            )
+          }
+
           $hasErrors = $false
 
           foreach ($file in $ps1Files) {
             Write-Host "Analyzing: $($file.FullName)"
             $results = Invoke-ScriptAnalyzer -Path $file.FullName -Settings $settingsPath
+
+            # Filter out per-file excluded rules
+            $excludedRules = $perFileExclusions[$file.Name]
+            if ($excludedRules) {
+              $results = $results | Where-Object { $_.RuleName -notin $excludedRules }
+            }
 
             if ($results) {
               $hasErrors = $true
