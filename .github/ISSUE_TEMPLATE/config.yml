@@ -60,23 +60,12 @@ contact_links:
     about: Report security issues privately (do not open a public issue). Private vulnerability reporting is only available for public repositories.
 
   # =============================================================================
-  # DISCUSSIONS LINK (OPTIONAL)
+  # DISCUSSIONS LINK
   # =============================================================================
-  # Trade-off notes on Discussions link:
-  # - Kept commented out by default because many downstream repos don't enable Discussions.
-  # - If you know most downstream repos will enable Discussions, you can uncomment by default.
-  # - Enabling this redirects support questions away from issues, which improves triage.
+  # This link redirects support questions away from issues, which improves triage.
+  # GitHub Discussions is enabled for this repository.
   #
-  # HOW TO ENABLE DISCUSSIONS:
-  # 1. Go to your repository Settings > General > Features
-  # 2. Check the "Discussions" checkbox to enable the feature
-  #    See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/enabling-or-disabling-github-discussions-for-a-repository
-  # 3. Uncomment the block below
-  # 4. Replace `franklesniak/BigDACLEnergy` with your actual organization and repository name
-  # 5. Test the link in the issue template chooser to verify it works
-  #
-  # CUSTOMIZE: Uncomment the following block if your repository uses GitHub
-  # Discussions for Q&A.
+  # If Discussions is ever disabled, comment out the block below to avoid broken links.
   # =============================================================================
   - name: 💬 Questions & Discussions
     url: https://github.com/franklesniak/BigDACLEnergy/discussions
