@@ -104,10 +104,10 @@ function Test-Windows {
         #
         # .EXAMPLE
         # $versionPS = Get-PSVersion
-        # if ($versionPS.Major -ge 2) {
-        #     Write-Host "PowerShell 2.0 or later detected"
+        # if ($versionPS.Major -ge 5) {
+        #     Write-Information "PowerShell 5.0 or later detected"
         # } else {
-        #     Write-Host "PowerShell 1.0 detected"
+        #     Write-Verbose -Message "PowerShell 4.x or earlier detected" -Verbose
         # }
         # # This example demonstrates storing the returned version object in a
         # # variable and using it to make conditional decisions based on

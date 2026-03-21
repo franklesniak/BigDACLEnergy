@@ -124,7 +124,7 @@ function Get-DataFromCloudServiceCmdletRobust {
     #
     # The eighth positional parameter is a string representation of ...
     #
-    # The nineth positional parameter is a boolean value that indicates whether ...
+    # The ninth positional parameter is a boolean value that indicates whether ...
     #
     # If supplied, the tenth positional parameter is a string representation of ...
     #
@@ -727,7 +727,7 @@ function Get-DataFromCloudServiceCmdletRobust {
 
     # Store current error preference; we will restore it after we do the work of
     # this function
-    $actionpreferenceFormerErrorPreference = $global:ErrorActionPreference
+    $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
 
     # Set ErrorActionPreference to SilentlyContinue; this will suppress error
     # output. Terminating errors will not output anything, kick to the empty trap
@@ -741,7 +741,7 @@ function Get-DataFromCloudServiceCmdletRobust {
     $arrOutput = @(Get-DataFromCloudServiceCmdlet $objPlaceHolderInputObject)
 
     # Restore the former error preference
-    $global:ErrorActionPreference = $actionpreferenceFormerErrorPreference
+    $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
 
     # Retrieve the newest error on the error stack
     $refNewestCurrentError = Get-ReferenceToLastError
