@@ -1,14 +1,7 @@
 # Placeholder.Tests.ps1
 #
-# This is a placeholder test file to demonstrate Pester test structure.
+# This is a placeholder test file to verify Pester test infrastructure.
 # Replace this file with actual tests for your PowerShell code.
-#
-# See templates/powershell/Example.Tests.ps1 for a comprehensive example
-# of Pester 5.x test patterns including:
-#   - Testing functions with integer return codes
-#   - Testing reference parameters ([ref])
-#   - Testing boolean returns (Test-* functions)
-#   - Mocking external dependencies
 #
 # Prerequisites:
 #   Install-Module -Name Pester -MinimumVersion 5.0 -Force

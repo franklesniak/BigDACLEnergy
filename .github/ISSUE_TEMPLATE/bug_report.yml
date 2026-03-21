@@ -1,41 +1,12 @@
-# =============================================================================
-# BUG REPORT TEMPLATE
-# =============================================================================
-# For detailed design decisions and customization options, see:
-# .github/DESIGN_DECISIONS.md > Issue Template Design Decisions > bug_report.yml
-#
-# CUSTOMIZE: markers below indicate actionable customization points.
-# Look for `# CUSTOMIZE:` comments throughout this file.
-# =============================================================================
+# Bug report issue template
 
 name: 🐛 Bug Report
 description: Report a bug or unexpected behavior
-# CUSTOMIZE: Adjust the title prefix to match your project's conventions
 title: "[Bug] "
-# CUSTOMIZE: Update these labels to match your repository's label taxonomy.
-# Ensure these labels exist in your repository or create them before using this template.
-# Common patterns include:
-#   - Type labels: bug, enhancement, documentation
-#   - Status labels: triage, confirmed, in-progress
-#   - Priority labels: priority:critical, priority:high, priority:medium, priority:low
-#   - Area labels: area:api, area:cli, area:docs
 labels:
   - bug
   - triage
-# CUSTOMIZE: Uncomment and update to specify an issue type (defined at the organization level).
-# See: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms#top-level-syntax
-# type: Bug
-# CUSTOMIZE: Uncomment and update to pre-populate the assignees field when opening bug reports
-# assignees:
-#   - maintainer-username
-# CUSTOMIZE: Uncomment and update to auto-add bug reports to a GitHub Project (uses project number)
-# projects:
-#   - org/1
 body:
-  # DESIGN DECISION: REDUNDANT SECURITY WARNINGS
-  # This template intentionally includes multiple security warnings (top-of-form,
-  # checkbox, severity dropdown). This defense-in-depth approach maximizes chance
-  # of catching accidental security disclosure. See DESIGN_DECISIONS.md for rationale.
   - type: markdown
     attributes:
       value: |
@@ -54,8 +25,6 @@ body:
       options:
         - label: I have searched existing issues and this is not a duplicate
           required: true
-        # CUSTOMIZE: Consider changing to `required: true` for projects with
-        # comprehensive documentation that users should consult before filing bugs
         - label: I have read the project documentation
           required: false
         - label: I am using a supported version of the project
@@ -64,7 +33,6 @@ body:
           required: false
         - label: This is NOT a security vulnerability (report those privately via SECURITY.md)
           required: true
-        # CUSTOMIZE: Remove if your project doesn't accept community contributions
         - label: I am willing to submit a pull request to fix this issue
           required: false
 
@@ -78,10 +46,6 @@ body:
     validations:
       required: true
 
-  # DESIGN DECISION: Area is optional by default for template portability.
-  # Small or single-language downstream repos may find "Area" redundant and
-  # friction-inducing. Downstream repos that rely on area-based routing can
-  # change this to `required: true` if needed.
   - type: dropdown
     id: area
     attributes:
@@ -89,13 +53,10 @@ body:
       description: >-
         What part of the project does this bug affect?
         Tip: For documentation typos/missing info, prefer the 📚 Documentation Issue template.
-      # CUSTOMIZE: Update these options to match your project's languages/components (remove unused entries).
       options:
-        - Python
         - PowerShell
         - Markdown / Documentation
         - GitHub Actions / CI
-        - Cross-language / Integration
         - Cross-cutting / Repo-wide
         - Other (describe/specify in Additional Context)
     validations:
@@ -168,8 +129,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Library/framework projects should consider making this required.
-  # Projects that don't accept external reproductions can remove this field.
   - type: input
     id: minimal_reproduction
     attributes:
@@ -209,8 +168,6 @@ body:
     validations:
       required: true
 
-  # CUSTOMIZE: Cross-platform projects should consider making this required.
-  # Single-platform projects can remove this field.
   - type: dropdown
     id: architecture
     attributes:
@@ -225,10 +182,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Update placeholder examples to match your project's supported runtimes
-  # This template uses Python 3.13+ (current bugfix version) as example
-  # NOTE: render: text is used here because users paste multi-line version output.
-  # This prevents Markdown parsing from mangling version strings with special characters.
   - type: textarea
     id: runtime_version
     attributes:
@@ -238,13 +191,10 @@ body:
         List each on a separate line if multiple apply
       render: text
       placeholder: |
-        Python 3.13.1 (or your installed version)
         PowerShell 7.4.6 or Windows PowerShell 5.1
-        Markdown tooling/renderer (if relevant): e.g., Pandoc 3.1.2
     validations:
       required: false
 
-  # CUSTOMIZE: CLI-focused projects should keep this field; others may remove it if not applicable
   - type: input
     id: shell_environment
     attributes:
@@ -255,9 +205,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Update placeholder examples to match your project's dependency management approach
-  # NOTE: render: text is used here because users paste exact commands with flags.
-  # This is especially important for Python and PowerShell where execution context varies widely.
   - type: textarea
     id: how_ran
     attributes:
@@ -266,18 +213,11 @@ body:
         Paste the exact commands you used to install and run the project (include flags).
       render: text
       placeholder: |
-        # Python (using pyproject.toml)
-        python -m venv .venv
-        source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-        pip install -e .
-        python -m your_package
-
-        # Python (using requirements.txt)
-        pip install -r requirements.txt
-        python script.py --flag
-
         # PowerShell
         pwsh -File .\script.ps1 -Param Value
+
+        # Windows PowerShell
+        powershell -File .\script.ps1 -Param Value
     validations:
       required: false
 
@@ -299,7 +239,6 @@ body:
     validations:
       required: true
 
-  # CUSTOMIZE: Remove this field if version history is not tracked or not relevant
   - type: dropdown
     id: regression
     attributes:
@@ -313,7 +252,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Remove if regression tracking is not relevant to your project
   - type: input
     id: last_working_version
     attributes:
@@ -325,7 +263,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Adjust severity options to match your project's triage workflow
   - type: dropdown
     id: severity
     attributes:
@@ -357,8 +294,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Update the cross-repo example in the placeholder to reference
-  # a related project in your ecosystem, or simplify to just `#123`
   - type: textarea
     id: related_issues
     attributes:

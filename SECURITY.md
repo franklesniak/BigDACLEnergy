@@ -45,8 +45,6 @@ We appreciate your help in keeping this project secure!
 
 ## Supported Versions
 
-<!-- Update this table based on your project's supported versions -->
-
 | Version | Supported          |
 | ------- | ------------------ |
 | latest  | :white_check_mark: |

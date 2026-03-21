@@ -1,36 +1,11 @@
-# =============================================================================
-# FEATURE REQUEST TEMPLATE
-# =============================================================================
-# For detailed design decisions and customization options, see:
-# .github/DESIGN_DECISIONS.md > Issue Template Design Decisions
-#
-# CUSTOMIZE: markers below indicate actionable customization points.
-# Look for `# CUSTOMIZE:` comments throughout this file.
-# =============================================================================
+# Feature request issue template
 
 name: 💡 Feature Request
 description: Suggest a new feature or enhancement
-# CUSTOMIZE: Adjust the title prefix to match your project's conventions
 title: "[Feature] "
-# CUSTOMIZE: Update these labels to match your repository's label taxonomy.
-# Ensure these labels exist in your repository or create them before using this template.
-# Common patterns include:
-#   - Type labels: enhancement, feature, improvement
-#   - Status labels: triage, accepted, planned
-#   - Priority labels: priority:critical, priority:high, priority:medium, priority:low
-#   - Area labels: area:api, area:cli, area:docs
 labels:
   - enhancement
   - triage
-# CUSTOMIZE: Uncomment and update to specify an issue type (defined at the organization level).
-# See: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms#top-level-syntax
-# type: Feature
-# CUSTOMIZE: Uncomment and update to pre-populate the assignees field when opening feature requests
-# assignees:
-#   - maintainer-username
-# CUSTOMIZE: Uncomment and update to auto-add feature requests to a GitHub Project (uses project number)
-# projects:
-#   - org/1
 body:
   - type: markdown
     attributes:
@@ -47,16 +22,10 @@ body:
       options:
         - label: I have searched existing issues and this feature has not been requested
           required: true
-        # CUSTOMIZE: Consider changing to `required: true` for projects with
-        # comprehensive documentation that users should consult before requesting features
         - label: I have read the project documentation
           required: false
-        # NOTE: This checkbox is worded generically to be portable across projects.
-        # Many downstream repos won't have a formal roadmap, so "existing issues/discussions/README"
-        # covers common places where planned work might be documented.
         - label: I have checked existing issues, discussions, or README for planned work
           required: false
-        # CUSTOMIZE: Remove if your project doesn't accept community contributions
         - label: I am willing to submit a pull request to implement this feature
           required: false
 
@@ -123,30 +92,20 @@ body:
     attributes:
       value: "### Feature Classification"
 
-  # Trade-off notes on area field being optional:
-  # - Optional (used here): Reduces friction for feature requesters.
-  # - Required: Improves categorization for repos that rely on area-based routing/automation.
-  # Recommended: Keep optional by default. Downstream repos can make it required if they
-  # use area-based routing or have automation that depends on this field.
-  # NOTE: Options match the bug report template for consistency.
   - type: dropdown
     id: area
     attributes:
       label: Area
       description: What part of the project would this feature impact?
-      # CUSTOMIZE: Update these options to match your project's languages/components (remove unused entries).
       options:
-        - Python
         - PowerShell
         - Markdown / Documentation
         - GitHub Actions / CI
-        - Cross-language / Integration
         - Cross-cutting / Repo-wide
         - Other (describe/specify in Additional Context)
     validations:
       required: false
 
-  # CUSTOMIZE: Adjust priority options to match your project's triage workflow
   - type: dropdown
     id: priority
     attributes:
@@ -162,7 +121,6 @@ body:
     validations:
       required: false
 
-  # CUSTOMIZE: Adjust scope options to match your project's feature categories
   - type: dropdown
     id: scope
     attributes:

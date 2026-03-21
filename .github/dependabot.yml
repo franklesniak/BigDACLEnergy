@@ -11,10 +11,6 @@
 # Grouping strategy: Minor and patch updates are grouped to reduce PR volume.
 # Major updates create individual PRs since they may contain breaking changes.
 #
-# TEMPLATE NOTE: This is enabled by default because security-conscious defaults
-# are appropriate for template repositories. To disable Dependabot, delete this
-# file. To customize, see: https://docs.github.com/en/code-security/dependabot
-
 version: 2
 updates:
   # npm dependencies (package.json)

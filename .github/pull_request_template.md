@@ -1,8 +1,3 @@
-<!--
-Template users: see OPTIONAL_CONFIGURATIONS.md for guidance on tailoring this PR
-template. Delete this comment once the PR template is tailored for your needs.
--->
-
 ## Description
 
 <!-- Provide a brief description of the changes in this PR -->
@@ -39,20 +34,7 @@ template. Delete this comment once the PR template is tailored for your needs.
 - [ ] If this repository uses pre-commit, I ran `pre-commit run --all-files` and all checks pass
 - [ ] If pre-commit made auto-fixes, I reviewed and committed them
 
-### Python-Specific (if applicable)
-
-<!-- Delete this section if your project does not use Python -->
-
-- [ ] Minimum Python version complies with the bugfix support policy (see [Python Developer's Guide - Versions](https://devguide.python.org/versions/))
-- [ ] I have not defaulted to or required unsupported Python versions
-- [ ] Type hints are included for public APIs (if using type checking)
-- [ ] Tests have been added/updated for Python changes
-- [ ] `pytest` passes locally
-- [ ] `mypy` type checking passes (if applicable)
-
 ### PowerShell-Specific (if applicable)
-
-<!-- Delete this section if your project does not use PowerShell -->
 
 - [ ] PSScriptAnalyzer passes locally (`Invoke-ScriptAnalyzer -Path . -Settings .github/linting/PSScriptAnalyzerSettings.psd1`)
 - [ ] Pester tests pass locally (`Invoke-Pester -Path tests/ -Output Detailed`)
