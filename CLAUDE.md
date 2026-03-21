@@ -89,4 +89,3 @@ its pattern.**
   issue or add an explicit "Open Question" instead.
 - Do not create separate "fix formatting" or "fix linting" commits—include all
   auto-fixes in the same commit as your changes.
-
