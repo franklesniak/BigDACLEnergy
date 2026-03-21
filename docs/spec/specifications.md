@@ -530,7 +530,7 @@ if (([int]$rule.ActiveDirectoryRights -band (-bnot [int]$ignoredRights)) -eq 0) 
 }
 ```
 
-> **Version note — bitwise operations on enums:** `ActiveDirectoryRights` is a `[Flags]` enum in `System.DirectoryServices`, available in .NET Framework 2.0 and all later versions. In PowerShell 1.0/2.0, the `-bnot` operator on an enum value may not produce the expected result without first casting to `[int]`. The `[int]` cast shown above ensures correct bitwise NOT behavior across all supported PowerShell versions. On PowerShell 3.0+ (.NET Framework 4.0+), the cast is not strictly required but is harmless and improves readability.
+> **Version note — bitwise operations on enums:** `ActiveDirectoryRights` is a `[Flags]` enum in `System.DirectoryServices`, available in .NET Framework 2.0 and all later versions. The `-bnot` operator on an enum value may not produce the expected result without first casting to `[int]`, because `-bnot` on an enum returns the result as the enum type, which can cause issues in subsequent bitwise operations. The `[int]` cast shown above ensures correct bitwise NOT behavior and is recommended across all supported PowerShell versions for reliability.
 >
 > For flag checks, `-band` is the primary approach and works across all supported versions. On PowerShell 3.0+ (.NET 4.0+), `$rule.ActiveDirectoryRights.HasFlag($flagValue)` can be used as an alternative for single-flag checks, but `-band` is preferred for simplicity and cross-version consistency.
 >
