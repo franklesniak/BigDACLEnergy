@@ -1,251 +1,140 @@
-# Project Name
+# BigDACLEnergy
 
-> **Note:** This repository was created from [`franklesniak/copilot-repo-template`](https://github.com/franklesniak/copilot-repo-template).
+[![Markdown Lint](https://github.com/franklesniak/BigDACLEnergy/actions/workflows/markdownlint.yml/badge.svg)](https://github.com/franklesniak/BigDACLEnergy/actions/workflows/markdownlint.yml)
+[![PowerShell CI](https://github.com/franklesniak/BigDACLEnergy/actions/workflows/powershell-ci.yml/badge.svg)](https://github.com/franklesniak/BigDACLEnergy/actions/workflows/powershell-ci.yml)
 
-## Description
+An Active Directory delegation and DACL analysis tool for security
+assessments. BigDACLEnergy extracts AD security descriptors, resolves
+permissions, identifies insecure delegations against Tier 0 assets, and
+exports risk-scored findings to CSV.
 
-[Add your project description here]
+## Features
 
----
+- **Multi-domain forest scanning** — Automatically discovers all domains in
+  the forest via RootDSE bootstrap and enumerates all naming contexts
+  returned by RootDSE (including Domain, Configuration, Schema, and
+  application partitions)
+- **Security descriptor extraction** — Retrieves and parses binary security
+  descriptors from AD objects, extracting individual ACEs with full access
+  mask and object type resolution
+- **Inherited vs. explicit ACE filtering** — Distinguishes explicit
+  delegations from inherited permissions, focusing analysis on intentional
+  security changes
+- **Default/built-in permission filtering** — Filters out well-known default
+  ACEs (schema defaults, trusted system principals, read-only rights) to
+  surface only meaningful delegations
+- **SID resolution** — Resolves Security Identifiers to human-readable
+  display names using a four-step priority chain: cache, .NET `Translate()`,
+  LDAP lookup, and raw SID fallback
+- **Dangerous delegation detection** — Identifies 27 dangerous delegation
+  types across five categories: full control, dangerous writes, control
+  access rights, create/delete operations, and validated writes
+- **Risk classification** — Applies a four-level graduated severity model
+  (Critical, High, Medium, Informational) based on a three-dimensional
+  matrix of unsafe trustee, Tier 0 resource, and delegation category
+- **Current user exploitability** — Annotates each finding with whether the
+  current user's group memberships allow exploitation of the delegation
+- **CSV export** — Produces deterministic, RFC 4180-compliant CSV output with
+  seven columns: Resource, Trustee, Trustee type, Category, Details, Risk
+  Level, and Current User Can Exploit
+- **Delegation and template system** — Uses XML-based delegation definitions
+  with XSD validation for extensible risk classification rules
+- **Configurable verbosity** — Supports adjustable verbosity and file-based
+  logging with UTC timestamps (verbosity level mechanics are being finalized
+  as part of the PowerShell implementation)
 
-## Table of Contents
+## Prerequisites
 
-- [Readme for the Copilot Repository Template](#readme-for-the-copilot-repository-template)
-  - [What This Template Provides](#what-this-template-provides)
-  - [Getting Started](#getting-started)
-  - [Repository Structure](#repository-structure)
-  - [Language Support](#language-support)
-  - [Linting Tools](#linting-tools)
-  - [Testing](#testing)
-  - [Code Quality](#code-quality)
-  - [Acknowledgments](#acknowledgments)
-  - [License](#license)
+- **Windows PowerShell 1.0–5.1** on Windows Server 2003 and later — The
+  tool targets .NET Framework 2.0 compatibility for maximum portability
+  across legacy Windows Server environments
+- **PowerShell 7.x+** on supported modern Windows versions — For current,
+  supported Windows platforms that run PowerShell 7.x or later
+- **Active Directory environment** — The tool requires access to an AD
+  forest with appropriate read permissions on directory objects and security
+  descriptors
+- **Network connectivity** — LDAP/LDAPS access to domain controllers in the
+  target forest
 
----
+## Usage
 
-## Readme for the Copilot Repository Template
+BigDACLEnergy scans an Active Directory forest, analyzes delegations, and
+exports findings to CSV.
 
-This is a template repository providing best-practice GitHub Copilot instructions and linting configurations for new projects.
+> **Note:** The `BigDACLEnergy.ps1` entry point script is not yet available;
+> it is being developed and will be added in a future update. The examples
+> below illustrate the planned interface.
 
-### What This Template Provides
+```powershell
+# Basic scan using current credentials (SSO)
+.\BigDACLEnergy.ps1 -Csv .\results.csv
 
-This template includes:
+# Scan with increased verbosity
+.\BigDACLEnergy.ps1 -Csv .\results.csv -Verbose
 
-- **GitHub Copilot Instructions:** Comprehensive coding standards that guide AI-assisted development
-- **Multi-Agent Support:** Instruction files for Claude Code, OpenAI Codex CLI, and Gemini Code Assist (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`)
-- **Language-Specific Guidelines:** Modular instruction files for Markdown, PowerShell, and Python
-- **Linting Configurations:** Pre-configured settings for markdownlint and PSScriptAnalyzer
-- **Pre-commit Hooks:** Automated code quality checks before commits
+# Export only findings at or above a risk threshold
+.\BigDACLEnergy.ps1 -RiskCsv .\risk-findings.csv -RiskLevel High
 
-### Getting Started
+# Target a specific domain controller
+.\BigDACLEnergy.ps1 -Server dc01.example.com -Csv .\results.csv
 
-Choose the guide that matches your situation:
-
-- **[Creating a New Repository](GETTING_STARTED_NEW_REPO.md)**: Step-by-step guide for creating a new repository from this template
-- **[Adding to an Existing Repository](GETTING_STARTED_EXISTING_REPO.md)**: Guide for adopting template features into an existing repository
-- **[Optional Configurations](OPTIONAL_CONFIGURATIONS.md)**: Advanced customization options after initial setup
-
-For template maintainers, see [TEMPLATE_MAINTENANCE.md](TEMPLATE_MAINTENANCE.md).
-
-### Repository Structure
-
-```text
-.github/
-├── CODEOWNERS                       # Code ownership for automatic PR review requests
-├── copilot-instructions.md          # Repo-wide constitution for all changes
-├── dependabot.yml                   # Automated dependency updates configuration
-├── instructions/                    # Language-specific coding standards
-│   ├── docs.instructions.md         # Markdown/documentation standards
-│   ├── powershell.instructions.md   # PowerShell coding standards
-│   └── python.instructions.md       # Python coding standards
-├── linting/                         # Linting tool configurations
-│   └── PSScriptAnalyzerSettings.psd1  # PowerShell linting settings
-├── scripts/                         # Helper scripts for CI/tooling
-└── workflows/                       # GitHub Actions workflows
-    ├── check-placeholders.yml       # Verifies OWNER/REPO placeholders are replaced
-    └── powershell-ci.yml            # PowerShell linting and testing CI (optional)
-    └── python-ci.yml                 # Python linting and testing CI (optional)
-
-src/
-└── copilot_repo_template/           # Example Python package (rename for your project)
-    ├── __init__.py
-    └── example.py
-
-tests/                               # Test directory
-├── __init__.py
-├── test_example.py                  # Python pytest tests
-└── PowerShell/                      # PowerShell Pester tests
-    └── Placeholder.Tests.ps1
-
-templates/                           # Reference templates for project setup
-├── python/                          # Python project templates
-└── powershell/                      # PowerShell test templates
-    └── Example.Tests.ps1            # Comprehensive Pester test example
-
-pyproject.toml                       # Python project configuration
-.markdownlint.jsonc                  # Markdown linting configuration
-.pre-commit-config.yaml              # Pre-commit hooks (Python focused)
-AGENTS.md                            # Agent instructions for OpenAI Codex CLI
-CLAUDE.md                            # Agent instructions for Claude Code
-GEMINI.md                            # Agent instructions for Gemini Code Assist
+# Exclude specific subtrees from the scan
+.\BigDACLEnergy.ps1 -Csv .\results.csv -ExcludeDN "OU=Workstations,DC=example,DC=com"
 ```
 
-#### Key Files Explained
+### Authentication
 
-| File | Purpose |
+BigDACLEnergy supports three authentication methods (in priority order):
+
+1. **Single sign-on (SSO)** — Uses the current Windows identity (default;
+   no credential parameters required)
+2. **Interactive password** — Supply `-Username <user> -Password *` to be
+   prompted for a password securely without echo
+3. **Environment variable** — Supply `-Username <user> -PasswordEnv
+   <VARIABLE_NAME>` to read the password from a named environment variable
+   (no cleartext passwords on the command line)
+
+> **Note:** Cleartext passwords on the command line are not supported.
+> If automation requires non-interactive credential supply, use the
+> `-PasswordEnv` option.
+
+### Output
+
+Results are written to a UTF-8 encoded CSV file without BOM with the
+following columns:
+
+| Column | Description |
 | --- | --- |
-| `.github/CODEOWNERS` | Defines code ownership for automatic PR review requests - replace `@OWNER` placeholder |
-| `.github/copilot-instructions.md` | The "constitution" for all code changes - defines safety rules, pre-commit discipline, and references language-specific instructions |
-| `.github/dependabot.yml` | Dependabot configuration for automated dependency updates - enabled by default |
-| `.github/instructions/*.md` | Language-specific coding standards applied based on file patterns |
-| `.github/linting/PSScriptAnalyzerSettings.psd1` | PSScriptAnalyzer settings enforcing OTBS formatting for PowerShell |
-| `.github/workflows/check-placeholders.yml` | CI workflow to verify OWNER/REPO and @OWNER placeholders are replaced after cloning |
-| `.github/workflows/powershell-ci.yml` | PowerShell linting and Pester testing CI workflow (optional - remove if not using PowerShell) |
-| `.github/workflows/python-ci.yml` | Python linting and testing CI workflow (optional - remove if not using Python) |
-| `.markdownlint.jsonc` | Markdown linting rules prioritizing auto-fixable checks |
-| `.pre-commit-config.yaml` | Pre-commit hooks for all projects (Python formatting, linting, Markdown) |
-| `AGENTS.md` | Agent instructions for OpenAI Codex CLI and GitHub Copilot coding agent |
-| `CLAUDE.md` | Agent instructions for Claude Code and GitHub Copilot coding agent |
-| `GEMINI.md` | Agent instructions for Gemini Code Assist and GitHub Copilot coding agent |
-| `pyproject.toml` | Python project configuration with dev dependencies |
-| `src/copilot_repo_template/` | Example Python package - rename for your project |
-| `tests/` | Test directory with pytest tests (Python) and Pester tests (PowerShell) |
-| `templates/powershell/Example.Tests.ps1` | Comprehensive Pester test template with examples |
+| Resource | The resource identifier associated with the finding. This is often an AD object (such as a DN), but may also be a schema reference or the literal `Global` (see spec §10 and §16.2 for all cases). |
+| Trustee | The trustee associated with the finding. This may be a resolved security principal, the literal `Global`, or an unresolvable raw SID (see spec §10 for resolution rules). |
+| Trustee type | A high-level classification of the trustee when resolvable (for example: `User`, `Group`, `Computer`, `External`). May be empty for unresolvable SIDs (see spec §10). |
+| Category | The finding category, including delegation categories (e.g., full control, dangerous write) and non-delegation categories (`Warning`, `Owner`, `Allow ACE`). See spec §16.2 for the complete list. |
+| Details | Specific permission details and object type information relevant to the finding. |
+| Risk Level | Graduated severity when present: `Critical`, `High`, `Medium`, or `Informational`; may be empty when no risk rule matches. |
+| Current User Can Exploit | `Yes` when the finding is determined to be exploitable by the current user context; otherwise empty. |
 
-### Language Support
+For the complete and authoritative CSV schema, including all allowed values
+and edge cases for each column, see
+[docs/spec/specifications.md](docs/spec/specifications.md), sections 10 and
+16.2.
 
-| Language | Instruction File | File Pattern | CI Workflow | Description |
-| --- | --- | --- | --- | --- |
-| Markdown/Docs | `.github/instructions/docs.instructions.md` | `**/*.md` | `.github/workflows/markdownlint.yml` | Documentation writing standards |
-| PowerShell | `.github/instructions/powershell.instructions.md` | `**/*.ps1` | `.github/workflows/powershell-ci.yml` | PowerShell coding standards (OTBS, v1.0-v7.x) |
-| Python | `.github/instructions/python.instructions.md` | `**/*.py` | `.github/workflows/python-ci.yml` | Python coding standards (PEP 8, typing) |
-| Terraform | `.github/instructions/terraform.instructions.md` | `**/*.tf`, `**/*.tfvars`, `**/*.tftest.hcl`, etc. | `.github/workflows/terraform-ci.yml` | Terraform coding standards (HCL, modules) |
+## Contributing
 
-### Linting Tools
+Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md)
+for development setup, coding standards, and pull request guidelines.
 
-This template organizes linting configurations in `.github/linting/` (for PSScriptAnalyzer) and the repository root (for markdownlint). Projects MAY reorganize these configurations to a different location (e.g., a project-specific `config/` directory) if preferred. If configurations are moved, update the paths referenced in CI workflows and `.github/copilot-instructions.md` accordingly.
+## License
 
-#### Markdown Linting
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for
+details.
 
-Configuration: `.markdownlint.jsonc`
+## Security
 
-```bash
-# Check markdown files
-npm run lint:md
+To report a security vulnerability, please follow the instructions in
+[SECURITY.md](SECURITY.md). Do **not** open a public issue for security
+reports.
 
-# Auto-fix issues
-npx markdownlint-cli2 "**/*.md" "#node_modules" --fix
-```
-
-#### PowerShell Linting (PSScriptAnalyzer)
-
-Configuration: `.github/linting/PSScriptAnalyzerSettings.psd1`
-
-```powershell
-# Check PowerShell files
-Invoke-ScriptAnalyzer -Path .\script.ps1 -Settings .\.github\linting\PSScriptAnalyzerSettings.psd1
-
-# Auto-fix formatting issues
-Invoke-ScriptAnalyzer -Path .\script.ps1 -Settings .\.github\linting\PSScriptAnalyzerSettings.psd1 -Fix
-```
-
-#### Python Linting
-
-Configuration: `.pre-commit-config.yaml`
-
-```bash
-# Run all pre-commit hooks
-pre-commit run --all-files
-
-# Run specific hooks
-pre-commit run black --all-files
-pre-commit run ruff-check --all-files
-```
-
-#### Terraform Linting
-
-This repository includes Terraform linting via:
-
-- **terraform fmt:** Format checking and auto-formatting
-- **terraform validate:** Configuration validation
-- **TFLint:** Best practice linting with cloud provider plugins
-
-Configuration: `.tflint.hcl`
-
-```bash
-# Format check
-terraform fmt -check -recursive
-
-# Format fix
-terraform fmt -recursive
-
-# Validate (requires init)
-terraform init -backend=false && terraform validate
-
-# Lint
-tflint --init && tflint --recursive
-```
-
-### Testing
-
-#### Python Tests
-
-Python tests use pytest with coverage reporting.
-
-```bash
-# Run all Python tests
-pytest tests/ -v --cov --cov-report=term-missing
-
-# Run a specific test file
-pytest tests/test_example.py -v
-```
-
-#### PowerShell Tests
-
-PowerShell tests use Pester 5.x.
-
-```powershell
-# Install Pester if needed
-Install-Module -Name Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
-
-# Run all Pester tests
-Invoke-Pester -Path tests/ -Output Detailed
-
-# Run a specific test file
-Invoke-Pester -Path tests/PowerShell/Placeholder.Tests.ps1
-```
-
-CI runs PowerShell tests on Windows, macOS, and Linux to ensure cross-platform compatibility.
-
-See `templates/powershell/Example.Tests.ps1` for a comprehensive Pester test template.
-
-#### Terraform Tests
-
-Terraform tests use the native Terraform test framework (Terraform 1.6+).
-
-```bash
-# Run all Terraform tests
-terraform test -verbose
-
-# Run specific test file
-terraform test -filter=tests/unit.tftest.hcl
-```
-
-Tests are located in `modules/*/tests/` directories.
-
-See `templates/terraform/Example.tftest.hcl` for a comprehensive Terraform test template.
-
-### Code Quality
-
-This repository enforces code quality through:
-
-- **Markdown Linting:** Runs on pre-commit and in CI
-- **GitHub Copilot Instructions:** Guides AI-assisted development
-- **Pre-commit Hooks:** Catches issues before they reach CI
-- **PSScriptAnalyzer:** PowerShell static analysis with OTBS formatting
-- **TFLint:** Terraform linting with configurable rules and cloud provider plugins
-
-### Acknowledgments
+## Acknowledgments
 
 BigDACLEnergy is independently implemented but was inspired by the approaches
 of these excellent tools:
@@ -259,7 +148,3 @@ of these excellent tools:
 
 No source code from either project is used in BigDACLEnergy. See
 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for details.
-
-### License
-
-MIT License - See [LICENSE](LICENSE) for details.
