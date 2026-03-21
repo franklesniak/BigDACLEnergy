@@ -145,7 +145,7 @@ try {
 
 **Resource cleanup in PowerShell:** `DirectoryEntry` implements `IDisposable` and MUST be disposed after use to avoid leaking unmanaged ADSI handles. PowerShell does not have a `using` statement equivalent to C#'s `using (IDisposable)` pattern — even in PowerShell 5.1, the `using` keyword is only for namespace and module imports, not for automatic `IDisposable` cleanup. The recommended pattern for all PowerShell versions is `try/finally` with explicit `.Dispose()` calls, as shown above. This applies to all `DirectoryEntry` and `DirectorySearcher` instances throughout the tool.
 
-> **PowerShell 1.0 note:** The `try/finally` construct is not available in PowerShell 1.0 (it was introduced in PowerShell 2.0). On PowerShell 1.0, explicit `.Dispose()` calls MUST be placed after the resource is no longer needed, combined with the `trap`-based error handling pattern (see Section 0 and the repository coding standards) to provide best-effort disposal when errors are encountered. Note that the `trap`-based pattern does not provide the same guaranteed cleanup semantics as `try/finally` — it relies on the `trap` block suppressing errors so that subsequent `.Dispose()` calls are reached during normal control flow.
+> **PowerShell 1.0 note:** The `try/finally` construct is not available in PowerShell 1.0 (it was introduced in PowerShell 2.0). On PowerShell 1.0, explicit `.Dispose()` calls MUST be placed after the resource is no longer needed, combined with the `trap`-based error handling pattern (see the repository coding standards) to provide best-effort disposal when errors are encountered. Note that the `trap`-based pattern does not provide the same guaranteed cleanup semantics as `try/finally` — it relies on the `trap` block suppressing errors so that subsequent `.Dispose()` calls are reached during normal control flow.
 
 The following attributes are read from the RootDSE:
 
@@ -214,17 +214,23 @@ When the user specifies `--password *` (interactive prompt), the tool must read 
 
 **Approach 1: `[System.Console]::ReadKey($true)` (all PowerShell versions)**
 
-Build the password string character-by-character using `[System.Console]::ReadKey($true)`, which reads a single key without echoing it. This method is available in all PowerShell versions (1.0 through 7.x) and directly produces a plain `[string]` suitable for the `DirectoryEntry` constructor:
+Build the password string character-by-character using `[System.Console]::ReadKey($true)`, which reads a single key without echoing it. This method is available in all PowerShell versions (1.0 through 7.x) and directly produces a plain `[string]` suitable for the `DirectoryEntry` constructor. Implementations SHOULD handle Backspace (to allow correction) and filter non-printing control characters rather than appending every key press directly:
 
 ```powershell
-$password = ""
+$passwordChars = New-Object 'System.Collections.Generic.List[char]'
 while ($true) {
     $key = [System.Console]::ReadKey($true)
     if ($key.Key -eq [System.ConsoleKey]::Enter) {
         break
+    } elseif ($key.Key -eq [System.ConsoleKey]::Backspace) {
+        if ($passwordChars.Count -gt 0) {
+            [void]($passwordChars.RemoveAt($passwordChars.Count - 1))
+        }
+    } elseif (-not [System.Char]::IsControl($key.KeyChar)) {
+        [void]($passwordChars.Add($key.KeyChar))
     }
-    $password += $key.KeyChar
 }
+$password = New-Object System.String(, $passwordChars.ToArray())
 ```
 
 **Approach 2: `Read-Host -AsSecureString` (PowerShell 2.0+)**
@@ -233,9 +239,12 @@ while ($true) {
 
 ```powershell
 $securePassword = Read-Host -Prompt "Password" -AsSecureString
-$password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-    [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
-)
+$bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+try {
+    $password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+} finally {
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+}
 ```
 
 **Trade-offs:**
