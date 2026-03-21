@@ -51,7 +51,7 @@ function Test-Windows {
     # 6.x, and PowerShell 7.x. This function supports Windows, and when run on
     # PowerShell Core 6.x or PowerShell 7.x, also supports macOS and Linux.
     #
-    # Version: 1.1.20260109.0
+    # Version: 1.1.20260321.0
 
     param (
         [version]$PSVersion = ([version]'0.0')
@@ -123,7 +123,7 @@ function Test-Windows {
         # the version of PowerShell that is running.
         #
         # .NOTES
-        # Version: 1.0.20251231.0
+        # Version: 1.0.20260321.0
         #
         # This function is compatible with all versions of PowerShell: Windows
         # PowerShell (v1.0 - 5.1), PowerShell Core 6.x, and PowerShell 7.x and
