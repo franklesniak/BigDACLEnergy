@@ -133,19 +133,33 @@ The tool queries the following Active Directory partitions, discovered dynamical
 On startup, the tool reads the RootDSE to retrieve essential directory metadata:
 
 ```powershell
+# Intentionally empty trap statement to prevent terminating errors from halting processing
+trap { }
+
 $rootDSE = New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://RootDSE"
-try {
-    # Read attributes and use $rootDSE within this scope
-} finally {
-    if ($rootDSE -ne $null) {
-        $rootDSE.Dispose()
-    }
+
+# Read attributes and use $rootDSE...
+# (error-prone operations MUST be wrapped in a function using the trap-based
+# error handling pattern — see below)
+
+# Dispose the DirectoryEntry when no longer needed
+if ($rootDSE -ne $null) {
+    $rootDSE.Dispose()
 }
 ```
 
-**Resource cleanup in PowerShell:** `DirectoryEntry` implements `IDisposable` and MUST be disposed after use to avoid leaking unmanaged ADSI handles. PowerShell does not have a `using` statement equivalent to C#'s `using (IDisposable)` pattern — even in PowerShell 5.1, the `using` keyword is only for namespace and module imports, not for automatic `IDisposable` cleanup. The recommended pattern for all PowerShell versions is `try/finally` with explicit `.Dispose()` calls, as shown above. This applies to all `DirectoryEntry` and `DirectorySearcher` instances throughout the tool.
+**Resource cleanup in PowerShell:** `DirectoryEntry` implements `IDisposable` and MUST be disposed after use to avoid leaking unmanaged ADSI handles. PowerShell does not have a `using` statement equivalent to C#'s `using (IDisposable)` pattern — even in PowerShell 5.1, the `using` keyword is only for namespace and module imports, not for automatic `IDisposable` cleanup.
 
-> **PowerShell 1.0 note:** The `try/finally` construct is not available in PowerShell 1.0 (it was introduced in PowerShell 2.0). On PowerShell 1.0, explicit `.Dispose()` calls MUST be placed after the resource is no longer needed, combined with the `trap`-based error handling pattern (see the repository coding standards) to provide best-effort disposal when errors are encountered. Note that the `trap`-based pattern does not provide the same guaranteed cleanup semantics as `try/finally` — it relies on the `trap` block suppressing errors so that subsequent `.Dispose()` calls are reached during normal control flow.
+> **Important:** The `try`, `catch`, and `finally` constructs MUST NOT be used anywhere in this tool. These constructs were introduced in PowerShell 2.0 and cause a **parser error** on PowerShell 1.0 — the script will fail to parse entirely, even if the `try/catch/finally` code is inside a conditional branch that would never execute on v1.0. Since this tool targets PowerShell 1.0 through 7.x from a single script, no `try/catch/finally` may appear in the source code.
+
+**Resource cleanup pattern:** The tool uses the `trap`-based error handling pattern for all error-prone operations, including resource cleanup. An intentionally empty `trap { }` statement is placed at function scope to prevent terminating errors from halting processing. When a terminating error occurs, the empty `trap` block suppresses it and execution continues with the next statement, allowing subsequent `.Dispose()` calls to be reached during normal control flow. This applies to all `DirectoryEntry` and `DirectorySearcher` instances throughout the tool.
+
+**Error handling via function wrappers:** All error-prone operations (such as reading attributes from a `DirectoryEntry`, executing `DirectorySearcher.FindAll()`, or calling managed API methods that contact a domain controller) MUST be wrapped in a function that follows one of two patterns from the repository reference code:
+
+- **`reference-code/_RobustCloudServiceFunctionTemplate.ps1`** — for calls that contact an external system (e.g., a domain controller) and may benefit from retry logic with exponential backoff.
+- **`reference-code/_SimpleFunctionTemplate.ps1`** — for local operations that do not need retry logic but still require error detection.
+
+Both templates use the same core mechanism: `trap { }` to suppress terminating errors, `$global:ErrorActionPreference = SilentlyContinue` to suppress non-terminating error output, and the `Get-ReferenceToLastError` / `Test-ErrorOccurred` helper functions to detect whether an error occurred by comparing `$Error` stack references before and after the operation. See the repository coding standards for detailed documentation of this pattern.
 
 The following attributes are read from the RootDSE:
 
@@ -190,7 +204,7 @@ The tool uses .NET Framework `System.DirectoryServices.ActiveDirectory` managed 
 | Auto-discover forest-level topology | `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()` returns the forest with all domains and sites |
 | Connect to a specific server | `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://serverName"` — connection is established lazily on first property access |
 | Specify a port number | Encoded in the LDAP path: `"LDAP://serverName:636"` for LDAPS. **Note:** the port number alone does not enable TLS — `[System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer` must also be set (see LDAPS section below) |
-| Failure on non-domain-joined machine | `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` throws `ActiveDirectoryObjectNotFoundException`; the tool must handle this exception and report a clear error message |
+| Failure on non-domain-joined machine | `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` throws `ActiveDirectoryObjectNotFoundException`; the tool must handle this error by wrapping the call in a function that follows the `trap`-based error handling pattern (use `reference-code/_RobustCloudServiceFunctionTemplate.ps1` since this contacts a domain controller and may benefit from retry logic) and report a clear error message |
 
 The tool should default to using `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` for DC discovery (which uses the Windows DC locator, i.e., AD sites and services native functionality, to select an optimal DC). An optional `-Server` CLI parameter allows targeting a specific DC. When `-Server` is specified, all directory operations must be routed through that server for consistency:
 
@@ -206,15 +220,15 @@ The tool should default to using `[System.DirectoryServices.ActiveDirectory.Doma
 | --- | --- |
 | Use current Windows SSO (Negotiate/SSPI) | `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList $path` — uses the process identity automatically |
 | Explicit credentials | `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList $path, $username, $password, ([System.DirectoryServices.AuthenticationTypes]::Secure)` |
-| Interactive password entry (`-Password *`) | Read password via `[System.Console]::ReadKey($true)` in a loop, pass to `DirectoryEntry` constructor (see below) |
+| Interactive password entry (`-Password *`) | Version-conditional: on PS 2.0+ use `Read-Host -AsSecureString` with conversion to plain text; on PS 1.0 use `[System.Console]::ReadKey($true)` in a loop. Pass result to `DirectoryEntry` constructor (see below) |
 
 #### Interactive Password Entry
 
-When the user specifies `-Password *` (interactive prompt), the tool must read the password without echoing it to the console. Two approaches are available:
+When the user specifies `-Password *` (interactive prompt), the tool must read the password without echoing it to the console. The implementation MUST use version-conditional logic to select the appropriate approach based on the running PowerShell version (detected via `Get-PSVersion` — see `reference-code/Get-PSVersion.ps1`):
 
-**Approach 1: `[System.Console]::ReadKey($true)` (all PowerShell versions)**
+**PowerShell 1.0: `[System.Console]::ReadKey($true)` (plain text directly)**
 
-Build the password string character-by-character using `[System.Console]::ReadKey($true)`, which reads a single key without echoing it. This method is available in all PowerShell versions (1.0 through 7.x) and directly produces a plain `[string]` suitable for the `DirectoryEntry` constructor. Implementations SHOULD handle Backspace (to allow correction) and filter non-printing control characters rather than appending every key press directly:
+On PowerShell 1.0, the tool MUST build the password string character-by-character using `[System.Console]::ReadKey($true)`, which reads a single key without echoing it. This method is available in all PowerShell versions (1.0 through 7.x) and directly produces a plain `[string]` suitable for the `DirectoryEntry` constructor. Implementations SHOULD handle Backspace (to allow correction) and filter non-printing control characters rather than appending every key press directly:
 
 ```powershell
 $passwordChars = New-Object -TypeName 'System.Collections.Generic.List[char]'
@@ -233,19 +247,27 @@ while ($true) {
 $password = New-Object -TypeName System.String -ArgumentList (, $passwordChars.ToArray())
 ```
 
-**Approach 2: `Read-Host -AsSecureString` (PowerShell 2.0+)**
+**PowerShell 2.0+: `Read-Host -AsSecureString` (with SecureString conversion)**
 
-`Read-Host -AsSecureString` provides built-in input masking and produces a `SecureString`. However, the `DirectoryEntry` constructor requires a plain `[string]` for the password parameter. The `SecureString` must be converted to plain text before use:
+On PowerShell 2.0 and later, the tool SHOULD use `Read-Host -AsSecureString`, which provides built-in input masking and produces a `SecureString`. However, the `DirectoryEntry` constructor requires a plain `[string]` for the password parameter. The `SecureString` must be converted to plain text before use. Since `try/finally` MUST NOT be used (see the resource cleanup note in Section 1), the BSTR allocation is freed using the `trap`-based pattern to ensure `ZeroFreeBSTR` is reached even if `PtrToStringBSTR` fails:
 
 ```powershell
+trap { }
+
 $securePassword = Read-Host -Prompt "Password" -AsSecureString
 $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
-try {
-    $password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-} finally {
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-}
+$password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 ```
+
+The `trap { }` statement ensures that if `PtrToStringBSTR` throws a terminating error, execution continues to `ZeroFreeBSTR`, preventing an unmanaged BSTR memory leak. This provides equivalent cleanup semantics to the `try/finally` pattern without causing parser errors on PowerShell 1.0.
+
+**Version-conditional selection:**
+
+The tool MUST detect the PowerShell version at runtime and select the appropriate approach:
+
+- **PowerShell 1.0:** Use the `[System.Console]::ReadKey($true)` approach (Approach 1), which produces a plain `[string]` directly.
+- **PowerShell 2.0+:** Use the `Read-Host -AsSecureString` approach (Approach 2), which provides brief encrypted in-memory storage during the input phase before conversion to plain text for the `DirectoryEntry` constructor.
 
 **Trade-offs:**
 
@@ -254,10 +276,10 @@ try {
 | PowerShell version | 1.0+ | 2.0+ |
 | Produces | Plain `[string]` directly | `SecureString` (requires conversion) |
 | Echo suppression | Manual (per-character) | Built-in |
-| Memory safety | Password in plain text from the start | Password in plain text after conversion |
+| Memory safety | Password in plain text from the start | Password encrypted until conversion |
 | Complexity | More code (loop, key handling) | Less code, but conversion step required |
 
-In both cases, the password ultimately exists as a plain `[string]` in memory because `DirectoryEntry` requires it. The `SecureString` approach provides a brief window of encrypted in-memory storage during the input phase, but the plain text conversion is required immediately afterward for the `DirectoryEntry` constructor, limiting the practical security benefit. Approach 1 is preferred for maximum version compatibility and directness.
+In both cases, the password ultimately exists as a plain `[string]` in memory because `DirectoryEntry` requires it. The `SecureString` approach provides a brief window of encrypted in-memory storage during the input phase, but the plain text conversion is required immediately afterward for the `DirectoryEntry` constructor, limiting the practical security benefit.
 
 ### LDAP Filters Used
 
