@@ -1,4 +1,4 @@
-# .SYNOPSIS
+﻿# .SYNOPSIS
 # Exports Active Directory Domain Services (AD DS) organizational unit (OU)
 # permissions to a CSV file.
 #
@@ -3503,10 +3503,10 @@ function Export-ADDSOUPermission {
                         $strUnresolvedKey = 'InheritedObjectType:' + $guidInheritedObjectType.ToString()
                         if ($hashtableUnresolvedGUIDs.ContainsKey($strUnresolvedKey) -eq $false) {
                             $hashtableUnresolvedGUIDs.Add($strUnresolvedKey, @{
-                                'GUID' = $guidInheritedObjectType.ToString()
-                                'Field' = 'InheritedObjectType'
-                                'DistinguishedNames' = (New-Object -TypeName 'System.Collections.Generic.List[string]')
-                            })
+                                    'GUID' = $guidInheritedObjectType.ToString()
+                                    'Field' = 'InheritedObjectType'
+                                    'DistinguishedNames' = (New-Object -TypeName 'System.Collections.Generic.List[string]')
+                                })
                         }
                         [void]($hashtableUnresolvedGUIDs[$strUnresolvedKey]['DistinguishedNames'].Add($strThisObjectDistinguishedName))
                         #endregion Track unresolved GUID for InheritedObjectType
@@ -3530,10 +3530,10 @@ function Export-ADDSOUPermission {
                         $strUnresolvedKey = 'ObjectType:' + $guidObjectType.ToString()
                         if ($hashtableUnresolvedGUIDs.ContainsKey($strUnresolvedKey) -eq $false) {
                             $hashtableUnresolvedGUIDs.Add($strUnresolvedKey, @{
-                                'GUID' = $guidObjectType.ToString()
-                                'Field' = 'ObjectType'
-                                'DistinguishedNames' = (New-Object -TypeName 'System.Collections.Generic.List[string]')
-                            })
+                                    'GUID' = $guidObjectType.ToString()
+                                    'Field' = 'ObjectType'
+                                    'DistinguishedNames' = (New-Object -TypeName 'System.Collections.Generic.List[string]')
+                                })
                         }
                         [void]($hashtableUnresolvedGUIDs[$strUnresolvedKey]['DistinguishedNames'].Add($strThisObjectDistinguishedName))
                         #endregion Track unresolved GUID for ObjectType
