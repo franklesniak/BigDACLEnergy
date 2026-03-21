@@ -117,19 +117,231 @@ In addition to Tier 3 capabilities, the following features become available:
 
 ## 1. Active Directory Scope and Query Locations
 
-<!-- TODO: To be completed in a future work effort -->
+### Naming Contexts Queried
+
+The tool queries the following Active Directory partitions, discovered dynamically at runtime from the RootDSE:
+
+| Partition | RootDSE Attribute | Purpose |
+| --- | --- | --- |
+| Schema | `schemaNamingContext` | Retrieve class definitions, attribute definitions, default security descriptors |
+| Configuration | `configurationNamingContext` | Retrieve extended rights, control access rights, validated writes, property sets |
+| All naming contexts | `namingContexts` | Scan every object in each naming context (including schema, configuration, domain, and application partitions) for explicit (non-inherited) ACEs |
+| Root domain | `rootDomainNamingContext` | Used as a fallback domain reference |
+
+### RootDSE Bootstrap
+
+On startup, the tool reads the RootDSE to retrieve essential directory metadata:
+
+```powershell
+$rootDSE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
+try {
+    # Read attributes and use $rootDSE within this scope
+} finally {
+    if ($rootDSE -ne $null) {
+        $rootDSE.Dispose()
+    }
+}
+```
+
+**Resource cleanup in PowerShell:** `DirectoryEntry` implements `IDisposable` and MUST be disposed after use to avoid leaking unmanaged ADSI handles. PowerShell does not have a `using` statement equivalent to C#'s `using (IDisposable)` pattern — even in PowerShell 5.1, the `using` keyword is only for namespace and module imports, not for automatic `IDisposable` cleanup. The recommended pattern for all PowerShell versions is `try/finally` with explicit `.Dispose()` calls, as shown above. This applies to all `DirectoryEntry` and `DirectorySearcher` instances throughout the tool.
+
+> **PowerShell 1.0 note:** The `try/finally` construct is not available in PowerShell 1.0 (it was introduced in PowerShell 2.0). On PowerShell 1.0, explicit `.Dispose()` calls MUST be placed after the resource is no longer needed, combined with the `trap`-based error handling pattern (see Section 0 and the repository coding standards) to ensure disposal occurs even when errors are encountered.
+
+The following attributes are read from the RootDSE:
+
+- `namingContexts` — the list of all naming contexts hosted by the server
+- `schemaNamingContext` — the DN of the Schema partition
+- `configurationNamingContext` — the DN of the Configuration partition
+- `rootDomainNamingContext` — the DN of the forest root domain
+
+When targeting a specific server, the path format is `"LDAP://serverName/RootDSE"`:
+
+```powershell
+$rootDSE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://serverName/RootDSE")
+```
+
+The `supportedControl` attribute is not required, as .NET Framework 2.0's `DirectorySearcher.SecurityMasks` property handles SD flags control transparently.
+
+### Known Domain NC Definition
+
+A naming context is classified as a "known domain NC" if it appears as the `nCName` attribute of a `crossRef` object in `CN=Partitions,<configurationNamingContext>` that also has a `nETBIOSName` attribute. This distinguishes domain naming contexts from application partitions and other non-domain NCs.
+
+**Authoritative source**: The known-domain-NC set is built from the `Domains` property of the `Forest` object (see Step 1 in Section 9), which returns all domain NCs in the forest. The `crossRef` query against `CN=Partitions` is used only to retrieve `nETBIOSName` values (since the `Domain` class does not expose NetBIOS names), and the results are matched back to the `Forest.Domains` set by `nCName` ↔ DN. Both sources should produce the same domain set; the `crossRef` definition above provides the formal classification criteria, while `Forest.Domains` is the runtime enumeration mechanism. This same set is used consistently for AdminSDHolder selection, deleted-trustee detection, per-domain SDDL expansion, and all other domain-scoped operations.
+
+### Recursive Traversal
+
+- **Schema partition**: Enumerated via `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetCurrentSchema().FindAllClasses()` and `.FindAllProperties()` for class GUIDs, attribute GUIDs, and default security descriptors.
+- **Configuration partition**: Queried with `DirectorySearcher` using `[System.DirectoryServices.SearchScope]::Subtree` to enumerate `controlAccessRight` objects for property sets, validated writes, and control access rights.
+- **Each naming context** (including schema, configuration, domain, and application partitions): Queried with `DirectorySearcher` using `Filter = "(objectClass=*)"` and `SearchScope = [System.DirectoryServices.SearchScope]::Subtree`, which returns every object in the partition recursively.
+- **AdminSDHolder**: Accessed via `New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,<domainDN>")` when the naming context is a known domain NC; otherwise `New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,<rootDomainNamingContext>")`. When `--server` is specified, the server prefix is included: `"LDAP://serverName/CN=AdminSDHolder,..."`.
+- **Individual SID lookups**: Performed via `New-Object System.DirectoryServices.DirectoryEntry("LDAP://<SID=S-1-5-...>")`. When `--server` is specified, the server prefix is included: `"LDAP://serverName/<SID=...>"`.
 
 ---
 
 ## 2. Directory Query Mechanics
 
-<!-- TODO: To be completed in a future work effort -->
+### Domain Controller Discovery and Connection
+
+The tool uses .NET Framework `System.DirectoryServices.ActiveDirectory` managed APIs for DC discovery:
+
+| Behavior | Implementation |
+| --- | --- |
+| Auto-discover a DC for the current domain | `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` returns a `Domain` object with an auto-selected DC |
+| Auto-discover forest-level topology | `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()` returns the forest with all domains and sites |
+| Connect to a specific server | `New-Object System.DirectoryServices.DirectoryEntry("LDAP://serverName")` — connection is established lazily on first property access |
+| Specify a port number | Encoded in the LDAP path: `"LDAP://serverName:636"` for LDAPS. **Note:** the port number alone does not enable TLS — `[System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer` must also be set (see LDAPS section below) |
+| Failure on non-domain-joined machine | `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` throws `ActiveDirectoryObjectNotFoundException`; the tool must catch this and report a clear error message |
+
+The tool should default to using `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` for DC discovery (which uses the Windows DC locator, i.e., AD sites and services native functionality, to select an optimal DC). An optional `--server` CLI argument allows targeting a specific DC. When `--server` is specified, all directory operations must be routed through that server for consistency:
+
+- **Managed API context**: Use `New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext([System.DirectoryServices.ActiveDirectory.DirectoryContextType]::DirectoryServer, $serverName)` to construct `[System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($context)`, `[System.DirectoryServices.ActiveDirectory.Forest]::GetForest($context)`, and `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetSchema($context)` objects, ensuring DC locator routes through the specified server.
+- **DirectoryEntry paths**: All `DirectoryEntry` LDAP paths must include the server prefix, e.g., `"LDAP://serverName/RootDSE"`, `"LDAP://serverName/CN=AdminSDHolder,..."`, `"LDAP://serverName/<SID=...>"`.
+- **DirectorySearcher instances**: The `SearchRoot` `DirectoryEntry` must include the server prefix when `--server` is specified.
+
+**General principle**: Prefer .NET Framework managed classes (`Domain`, `Forest`, `ActiveDirectorySchema`, `DirectoryContext` from the `System.DirectoryServices.ActiveDirectory` namespace) over raw LDAP paths wherever possible. These managed classes use the Windows DC locator for site-aware DC selection automatically, and respect `DirectoryContext` for explicit server targeting. Raw LDAP paths (via `DirectoryEntry`) should only be used when no managed equivalent exists (e.g., AdminSDHolder access, SID-based lookups, reading specific object attributes not exposed by managed classes).
+
+### Authentication
+
+| Behavior | Implementation |
+| --- | --- |
+| Use current Windows SSO (Negotiate/SSPI) | `New-Object System.DirectoryServices.DirectoryEntry($path)` — uses the process identity automatically |
+| Explicit credentials | `New-Object System.DirectoryServices.DirectoryEntry($path, $username, $password, [System.DirectoryServices.AuthenticationTypes]::Secure)` |
+| Interactive password entry (`--password *`) | Read password via `[System.Console]::ReadKey($true)` in a loop, pass to `DirectoryEntry` constructor (see below) |
+
+#### Interactive Password Entry
+
+When the user specifies `--password *` (interactive prompt), the tool must read the password without echoing it to the console. Two approaches are available:
+
+**Approach 1: `[System.Console]::ReadKey($true)` (all PowerShell versions)**
+
+Build the password string character-by-character using `[System.Console]::ReadKey($true)`, which reads a single key without echoing it. This method is available in all PowerShell versions (1.0 through 7.x) and directly produces a plain `[string]` suitable for the `DirectoryEntry` constructor:
+
+```powershell
+$password = ""
+while ($true) {
+    $key = [System.Console]::ReadKey($true)
+    if ($key.Key -eq [System.ConsoleKey]::Enter) {
+        break
+    }
+    $password += $key.KeyChar
+}
+```
+
+**Approach 2: `Read-Host -AsSecureString` (PowerShell 2.0+)**
+
+`Read-Host -AsSecureString` provides built-in input masking and produces a `SecureString`. However, the `DirectoryEntry` constructor requires a plain `[string]` for the password parameter. The `SecureString` must be converted to plain text before use:
+
+```powershell
+$securePassword = Read-Host -Prompt "Password" -AsSecureString
+$password = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+    [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+)
+```
+
+**Trade-offs:**
+
+| Consideration | `[System.Console]::ReadKey($true)` | `Read-Host -AsSecureString` |
+| --- | --- | --- |
+| PowerShell version | 1.0+ | 2.0+ |
+| Produces | Plain `[string]` directly | `SecureString` (requires conversion) |
+| Echo suppression | Manual (per-character) | Built-in |
+| Memory safety | Password in plain text from the start | Password in plain text after conversion |
+| Complexity | More code (loop, key handling) | Less code, but conversion step required |
+
+In both cases, the password ultimately exists as a plain `[string]` in memory because `DirectoryEntry` requires it. The `SecureString` approach provides no additional security benefit for this specific use case, since the plain text conversion is required immediately. Approach 1 is preferred for maximum version compatibility and directness.
+
+### LDAP Filters Used
+
+| Query Target | Filter | Attributes Requested |
+| --- | --- | --- |
+| Property sets | `(&(objectClass=controlAccessRight)(validAccesses=48)(rightsGuid=*))` | `rightsGuid`, `displayName` |
+| Validated writes | `(&(objectClass=controlAccessRight)(validAccesses=8)(rightsGuid=*))` | `rightsGuid`, `displayName` |
+| Control access rights | `(&(objectClass=controlAccessRight)(validAccesses=256)(rightsGuid=*))` | `rightsGuid`, `displayName` |
+| All naming contexts (main scan) | `(objectClass=*)` | `nTSecurityDescriptor`, `objectClass`, `objectSid`, `adminCount`, `msDS-KrbTgtLinkBl`, `serverReference`, `distinguishedName` |
+| AdminSDHolder | `(objectClass=*)` | `nTSecurityDescriptor` |
+| Domain enumeration (partitions) | `(&(objectClass=crossRef)(nCName=*)(nETBIOSName=*))` | `nCName`, `nETBIOSName` |
+
+Schema classes and attributes are enumerated via `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetCurrentSchema().FindAllClasses()` and `.FindAllProperties()` respectively, rather than via direct LDAP queries. Each `ActiveDirectorySchemaClass` provides `.SchemaGuid`, `.Name` (the `lDAPDisplayName`), and `.DefaultObjectSecurityDescriptor` (SDDL string). Each `ActiveDirectorySchemaProperty` provides `.SchemaGuid` and `.Name`.
+
+Extended rights, property sets, and validated writes are not directly exposed by `ActiveDirectorySchema` and must be queried via `DirectorySearcher` on the Configuration NC using the LDAP filters listed above.
+
+### Referral Handling
+
+LDAP referrals are disabled:
+
+```powershell
+$searcher.ReferralChasing = [System.DirectoryServices.ReferralChasingOption]::None
+```
+
+**Rationale:** Disabling referrals prevents hanging when running the tool from outside the domain or when DNS cannot resolve referral targets.
+
+**Cross-domain implication:** With referrals disabled, the tool will not automatically follow cross-domain references within the same forest. Objects referenced from other domains will not be resolved via referral chasing. Unfollowed referrals may surface as missing results or errors depending on the specific operation. This is an acceptable trade-off for connection reliability.
+
+### LDAPS and Encrypted Transport
+
+The tool uses `[System.DirectoryServices.AuthenticationTypes]::Secure` by default, which provides SSPI-negotiated authentication (typically Kerberos or NTLM). `Secure` guarantees authenticated binding but does **not** guarantee encryption or integrity protection — signing and sealing are negotiated separately and depend on domain controller and client policies. In most Active Directory environments, Kerberos with signing and sealing is the negotiated result, but this is not guaranteed by the flag alone. For environments that require guaranteed TLS-based transport encryption:
+
+- LDAPS is supported via path syntax: `"LDAP://server:636"` with `[System.DirectoryServices.AuthenticationTypes]::Secure -bor [System.DirectoryServices.AuthenticationTypes]::SecureSocketsLayer` (combining both flags ensures SSPI/Kerberos/NTLM authentication is preserved over the TLS channel; using `SecureSocketsLayer` alone may fall back to simple bind depending on how credentials are supplied)
+- Certificate validation is handled automatically by the Windows trusted CA certificate store
+- No custom certificate validation code or P/Invoke is needed
+
+### Connection Endpoints
+
+DC discovery is handled by `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` and `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()`, which use the Windows DC locator (AD sites and services) for site-aware DC selection. The `--server` CLI option allows explicit server targeting via `New-Object System.DirectoryServices.ActiveDirectory.DirectoryContext([System.DirectoryServices.ActiveDirectory.DirectoryContextType]::DirectoryServer, $serverName)`. Global Catalog access uses the `GC://` provider (e.g., `"GC://serverName"`), though the tool's operations primarily use the standard LDAP provider.
 
 ---
 
 ## 3. Paging, Performance, and Query Configuration
 
-<!-- TODO: To be completed in a future work effort -->
+### Paged Search
+
+All LDAP searches use paged results via the `PageSize` property of `DirectorySearcher`:
+
+```powershell
+$searcher.PageSize = 1000
+```
+
+Setting `PageSize` to a nonzero value enables transparent paging — `DirectorySearcher.FindAll()` handles page control creation, cookie management, and continuation automatically. The value 1000 is the default AD `MaxPageSize` policy limit. Environments with custom `MaxPageSize` policies may require a different value.
+
+### Security Descriptor Retrieval Control
+
+The `SecurityMasks` property of `DirectorySearcher` controls which parts of the security descriptor are retrieved:
+
+- **Main scan**: `[System.DirectoryServices.SecurityMasks]::Owner -bor [System.DirectoryServices.SecurityMasks]::Dacl` — retrieves only the owner and DACL
+- **AdminSDHolder**: `[System.DirectoryServices.SecurityMasks]::Dacl` — retrieves only the DACL
+
+Example:
+
+```powershell
+$searcher.SecurityMasks = [System.DirectoryServices.SecurityMasks]::Owner -bor [System.DirectoryServices.SecurityMasks]::Dacl
+```
+
+This replaces the manual `LDAP_SERVER_SD_FLAGS_OID` control and reduces data transfer by excluding the SACL and the security descriptor's Group SID field (not to be confused with the separate `primaryGroupID` attribute).
+
+> **Version note:** `System.DirectoryServices.SecurityMasks` is available in .NET Framework 2.0 and all later versions. No version-conditional logic is needed for this property.
+
+### Timeouts
+
+- `$searcher.ClientTimeout` — maximum time the client waits for search results
+- `$searcher.ServerTimeLimit` — maximum time the server spends processing a query
+
+The tool should set reasonable timeout values and report a clear error message if a timeout occurs.
+
+### Attribute Selection
+
+Only the specific attributes needed are requested via the `PropertiesToLoad` property of `DirectorySearcher`:
+
+```powershell
+$searcher.PropertiesToLoad.AddRange(@(
+    "nTSecurityDescriptor", "objectClass", "objectSid",
+    "adminCount", "msDS-KrbTgtLinkBl", "serverReference",
+    "distinguishedName"
+))
+```
+
+> **PowerShell 1.0 compatibility note:** The `AddRange` method is available on `System.Collections.Specialized.StringCollection` in .NET Framework 2.0 and works in all PowerShell versions. As an alternative, individual attributes can be added in a loop using `[void]$searcher.PropertiesToLoad.Add("attributeName")`.
+
+This reduces network traffic compared to retrieving all attributes. The `distinguishedName` attribute is included because it is needed for CSV Resource values (the object's DN), SID → DN cache population, and progress reporting. While .NET's `SearchResult.Path` (ADsPath) also encodes the DN, it includes the LDAP URI prefix and server name, requiring parsing to extract the bare DN — explicitly requesting `distinguishedName` via `PropertiesToLoad` provides the DN directly and avoids ambiguity.
 
 ---
 
