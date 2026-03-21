@@ -430,7 +430,15 @@ $sd = New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -
 
 The `RawSecurityDescriptor` constructor accepts SDDL directly. The resulting `$sd.DiscretionaryAcl` provides ACE enumeration through `CommonAce` and `ObjectAce` types in `System.Security.AccessControl`.
 
-**Important**: SDDL domain-relative aliases (e.g., `DA` for Domain Admins, `DU` for Domain Users) resolve to different SIDs in each domain, while forest-root-only aliases (`EA` for Enterprise Admins, `SA` for Schema Admins) always resolve to the forest root domain's SID. Since `New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddlString` resolves aliases using only the calling process's security context (i.e., the current domain), schema default SDDL strings must be parsed **once per known domain NC** with manual alias substitution. See Step 4 in Section 9 for the full per-domain expansion mechanism.
+**Important**: SDDL domain-relative aliases (e.g., `DA` for Domain Admins, `DU` for Domain Users) resolve to different SIDs in each domain, while forest-root-only aliases (`EA` for Enterprise Admins, `SA` for Schema Admins) always resolve to the forest root domain's SID. Since `New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddlString` resolves aliases using only the calling process's security context (i.e., the current domain), schema default SDDL strings must be parsed **once per known domain NC** with manual alias substitution.
+
+**Per-domain SDDL alias expansion mechanism:** For each `ActiveDirectorySchemaClass` with a `DefaultObjectSecurityDescriptor`, the tool must manually substitute SDDL abbreviations with the appropriate domain's SIDs before parsing. Specifically, for each known domain NC, replace per-domain aliases like `DA` → `S-1-5-21-<domainSid>-512`, `DU` → `S-1-5-21-<domainSid>-513`, `PA` (Group Policy Creator Owners) → `S-1-5-21-<domainSid>-520`, etc. Forest-root-only aliases — `EA` (Enterprise Admins, RID 519) and `SA` (Schema Admins, RID 518) — MUST always resolve to the **forest root domain** SID regardless of which domain is being processed. After substitution, parse the expanded string:
+
+```powershell
+$sd = New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $expandedSddl
+```
+
+The set of known domain NCs and their SIDs is collected during domain enumeration (see Section 1, "Known Domain NC Definition") and Section 9 (data processing pipeline).
 
 ### Owner Retrieval
 
