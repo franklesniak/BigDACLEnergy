@@ -650,22 +650,22 @@ Baseline protected set (minimum):
 | `S-1-5-32-549` | BUILTIN\Server Operators |
 | `S-1-5-32-550` | BUILTIN\Print Operators |
 | `S-1-5-32-551` | BUILTIN\Backup Operators |
-| `{domainSID}-512` | Domain Admins |
-| `{forestRootDomainSID}-518` | Schema Admins (forest root domain) |
-| `{forestRootDomainSID}-519` | Enterprise Admins (forest root domain) |
+| `<domain SID>-512` | Domain Admins |
+| `<forest root domain SID>-518` | Schema Admins (forest root domain) |
+| `<forest root domain SID>-519` | Enterprise Admins (forest root domain) |
 
 Optional explicit protected accounts (enabled by default; configurable):
 
 | SID | Identity |
 | --- | --- |
-| `{domainSID}-500` | Administrator |
-| `{domainSID}-502` | KRBTGT |
+| `<domain SID>-500` | Administrator |
+| `<domain SID>-502` | KRBTGT |
 
-> **Forest scope requirement:** In multi-domain forests, `{domainSID}` and `{forestRootDomainSID}` may differ. The tool MUST determine the forest root domain SID (i.e., `{forestRootDomainSID}`) to correctly evaluate `…-518` (Schema Admins) and `…-519` (Enterprise Admins). The forest root domain DN is available via RootDSE's `rootDomainNamingContext` attribute (see Section 1); its SID is obtained by resolving that DN to a domain object and reading its `objectSid`. If the forest root domain SID cannot be determined, the tool MUST fail safe — the SDProp evaluation status for Schema Admins and Enterprise Admins MUST be treated as **Undetermined** (their SIDs cannot be evaluated). Objects that would only be protected via those groups therefore inherit an **Undetermined** SDProp status: this Undetermined state MUST be used only to disable suppression based on those groups and MUST NOT cause AdminSDHolder anomalies (including `stale adminCount`) to be emitted solely due to this condition.
+> **Forest scope requirement:** In multi-domain forests, `<domain SID>` and `<forest root domain SID>` may differ. The tool MUST determine the forest root domain SID (i.e., `<forest root domain SID>`) to correctly evaluate `…-518` (Schema Admins) and `…-519` (Enterprise Admins). The forest root domain DN is available via RootDSE's `rootDomainNamingContext` attribute (see Section 1); its SID is obtained by resolving that DN to a domain object and reading its `objectSid`. If the forest root domain SID cannot be determined, the tool MUST fail safe — the SDProp evaluation status for Schema Admins and Enterprise Admins MUST be treated as **Undetermined** (their SIDs cannot be evaluated). Objects that would only be protected via those groups therefore inherit an **Undetermined** SDProp status: this Undetermined state MUST be used only to disable suppression based on those groups and MUST NOT cause AdminSDHolder anomalies (including `stale adminCount`) to be emitted solely due to this condition.
 
 ##### Protected set candidates (future authoritative baseline; non-authoritative via configuration)
 
-Some environments track additional SIDs as *candidate* SDProp-relevant identities (e.g., Domain Controllers `…-516`, RODCs `…-521`, Cert Publishers `…-517`, BUILTIN\Replicator `S-1-5-32-552`). These candidates are **not** part of the authoritative protected set unless and until they are shipped in a new versioned protected-set artifact. Operator configuration MUST NOT promote these candidates (or any other SIDs) into the authoritative protected set or otherwise affect SDProp in-scope determination; they MAY only be referenced in the suppression-override list (i.e., to suppress findings for objects that are already in-scope via the authoritative protected set).
+Some environments track additional SIDs as *candidate* SDProp-relevant identities (e.g., Domain Controllers `…-516`, RODCs `…-521`, Cert Publishers `…-517`, BUILTIN\Replicator `S-1-5-32-552`). These candidates are **not** part of the authoritative protected set unless and until they are shipped in a new versioned protected-set artifact. Operator configuration MUST NOT promote these candidates (or any other SIDs) into the authoritative protected set or otherwise affect SDProp in-scope determination. Operators MAY reference candidate SIDs in the suppression-override list to extend AdminSDHolder-template ACE suppression to members of those groups. Objects matched only by the suppression-override list (and not by the authoritative protected set) receive AdminSDHolder-template ACE suppression but are NOT treated as SDProp in-scope — they do not participate in AdminSDHolder anomaly detection or any other SDProp-related reporting.
 
 ##### Anti-pattern: never protect entire domain
 
@@ -698,7 +698,7 @@ Membership evaluation MUST:
 
 For scale, prefer:
 
-- Precompute transitive membership for protected groups once (per domain/forest), produce a hash set of protected principal SIDs, then do O(1) per-object checks.
+- Precompute transitive membership for protected groups once (per domain/forest), produce a set-membership structure of protected principal SIDs that supports O(1) membership checks (e.g., `HashSet[string]` on PowerShell 3.0+ where `HashSet<T>` is available, or `Dictionary[string,bool]` on PowerShell 1.0/2.0), then do per-object checks against this structure.
 - Cache: domain SID, forest-root domain SID, protected group SID → group DN (if doing DN-based chain matching).
 - Fail-safe rule still applies: incomplete precompute → no suppression for affected objects.
 
@@ -736,7 +736,7 @@ Two anomaly conditions are defined:
 
 These anomaly conditions MUST be evaluated only for principals whose SDProp in-scope status has been successfully determined by SID/membership evaluation. If SDProp in-scope evaluation is incomplete or indeterminate for a principal (for example, due to missing membership data or permission errors), the implementation MUST NOT emit any AdminSDHolder anomaly CSV row for that principal.
 
-Emission of these CSV rows MUST NOT depend on the `--verbose` level. Implementations MAY additionally log a summary count of AdminSDHolder anomalies to stderr when `--verbose >= 2`.
+Emission of these CSV rows MUST NOT depend on the `-Verbose` setting. Implementations MAY additionally log a summary count of AdminSDHolder anomalies to stderr when verbose output is enabled (for example, via the `-Verbose` common parameter).
 
 These findings help operations/security teams identify AdminSDHolder hygiene issues, but MUST NOT affect ACE suppression decisions.
 
