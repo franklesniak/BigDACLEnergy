@@ -710,10 +710,33 @@ Each resolved SID is mapped to one of four principal type classifications. The m
 During post-processing, for each naming context, ACEs whose trustee SID cannot be resolved are evaluated for deleted trustee classification:
 
 ```powershell
+# $knownDomainSids is the in-memory set/dictionary of known domain SIDs.
+# It MAY be implemented as either:
+#   - [System.Collections.Generic.Dictionary[string,bool]] (Tier 1 / PowerShell 1.0+)
+#   - [System.Collections.Generic.HashSet[string]]        (Tier 2 / PowerShell 3.0+)
+# This helper abstracts the membership check so callers do not need to know
+# which backing type is in use.
+function Test-KnownDomainSid {
+    param (
+        [string]$SidValue
+    )
+
+    if ($knownDomainSids -is [System.Collections.Generic.HashSet[string]]) {
+        return $knownDomainSids.Contains($SidValue)
+    } elseif ($knownDomainSids -is [System.Collections.Generic.Dictionary[string,bool]]) {
+        return $knownDomainSids.ContainsKey($SidValue)
+    }
+
+    # Fallback: treat $knownDomainSids as an enumerable of SID strings
+    foreach ($sid in $knownDomainSids) {
+        if ($sid -eq $SidValue) { return $true }
+    }
+    return $false
+}
+
 $domainSid = $trusteeSid.AccountDomainSid
 
-# $knownDomainSids is the in-memory set/dictionary of known domain SIDs, keyed by SID string
-if (($null -ne $domainSid) -and $knownDomainSids.ContainsKey($domainSid.Value)) {
+if (($null -ne $domainSid) -and (Test-KnownDomainSid -SidValue $domainSid.Value)) {
     # Flag as deleted trustee
 }
 ```
