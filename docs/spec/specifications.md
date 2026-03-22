@@ -662,7 +662,7 @@ The cache is implemented as a `Dictionary<string, object>`:
 $sidCache = New-Object 'System.Collections.Generic.Dictionary[string,object]'
 ```
 
-> **Version note — generic dictionary instantiation:** `New-Object 'System.Collections.Generic.Dictionary[string,object]'` is the way to create a `Dictionary<TKey,TValue>` across all supported PowerShell versions, including PowerShell 1.0. On PowerShell 3.0+, the alternative syntax `[System.Collections.Generic.Dictionary[string,object]]::new()` also works, but `New-Object` is preferred for cross-version consistency. The value type `object` is used here because the cache stores a composite resolution result; a more specific value type (e.g., a `PSCustomObject` or custom class) MAY be used if the implementation defines one.
+> **Version note — generic dictionary instantiation:** `New-Object 'System.Collections.Generic.Dictionary[string,object]'` is the way to create a `Dictionary<TKey,TValue>` across all supported PowerShell versions, including PowerShell 1.0. On PowerShell 3.0+, the alternative syntax `[System.Collections.Generic.Dictionary[string,object]]::new()` also works, but `New-Object` is preferred for cross-version consistency. The value type `object` is used here because the cache stores a composite resolution result. Implementations MAY narrow the value type when they also constrain the minimum supported PowerShell version (for example, using `Dictionary[string,psobject]` or `Dictionary[string,IDictionary]` for PowerShell 1.0/2.0 compatibility). In the baseline implementation, `PSObject` with `Add-Member` is the recommended composite type because it is available in all PowerShell versions including 1.0 and provides named-property semantics without requiring `Add-Type` or PowerShell 5.0+ class definitions.
 
 The cache stores a typed resolution result with:
 
@@ -712,7 +712,8 @@ During post-processing, for each naming context, ACEs whose trustee SID cannot b
 ```powershell
 $domainSid = $trusteeSid.AccountDomainSid
 
-if (($null -ne $domainSid) -and (Test-KnownDomainSid $domainSid)) {
+# $knownDomainSids is the in-memory set/dictionary of known domain SIDs, keyed by SID string
+if (($null -ne $domainSid) -and $knownDomainSids.ContainsKey($domainSid.Value)) {
     # Flag as deleted trustee
 }
 ```
