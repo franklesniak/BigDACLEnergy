@@ -712,7 +712,7 @@ During post-processing, for each naming context, ACEs whose trustee SID cannot b
 ```powershell
 $domainSid = $trusteeSid.AccountDomainSid
 
-if (($null -ne $domainSid) -and (IsKnownDomainSid $domainSid)) {
+if (($null -ne $domainSid) -and (Test-KnownDomainSid $domainSid)) {
     # Flag as deleted trustee
 }
 ```
