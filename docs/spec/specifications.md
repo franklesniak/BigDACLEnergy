@@ -641,13 +641,184 @@ The tool suppresses several ACE patterns specific to Read-Only Domain Controller
 
 ## 7. Security Identifier (SID) Resolution
 
-<!-- TODO: To be completed in a future work effort -->
+### Resolution Strategy
+
+SID resolution uses a clear 4-step priority:
+
+1. **Cache lookup**: Check a SID resolution cache (a key-value mapping from SID string to resolved result) for a previously resolved display name and principal type.
+2. **Local resolution via `SecurityIdentifier.Translate()`**: Call `$sid.Translate([System.Security.Principal.NTAccount])`. If successful, the resulting `NTAccount` object's `.Value` property returns the name in `DOMAIN\Username` format. This replaces the previous `LookupAccountSidLocalW` approach entirely — no P/Invoke or dynamic library loading is needed. The `Translate()` method is a .NET instance method on `System.Security.Principal.SecurityIdentifier` and works identically across all supported PowerShell versions.
+3. **LDAP SID-based lookup**: Perform a lookup via `New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList "LDAP://<SID=$($sid.Value)>"` and retrieve `distinguishedName` and `objectClass` attributes. When `-Server` is specified, include the server prefix: `"LDAP://$serverName/<SID=$($sid.Value)>"`. If successful, the DN is used as the display name and `objectClass` determines the principal type. The `DirectoryEntry` MUST be disposed after use (see resource cleanup note below).
+4. **Raw SID string fallback**: If all resolution methods fail, the raw SID string (e.g., `S-1-5-21-...`) is used as the display name, with type `External`.
+
+**Resource cleanup for LDAP SID lookups:** The `DirectoryEntry` created for each SID lookup implements `IDisposable` and MUST be disposed to release unmanaged ADSI handles. Since `try/finally` MUST NOT be used (see Section 1), disposal MUST be performed using the `trap`-based error handling pattern to ensure `.Dispose()` is reached even if an error occurs during attribute retrieval. The LDAP lookup operation MUST be wrapped in a function following the `trap`-based pattern from `reference-code/_RobustCloudServiceFunctionTemplate.ps1` (since it contacts a domain controller and may benefit from retry logic). The `.Dispose()` call is placed after the error-prone attribute access, within the same scope as the `trap { }` statement, so that it executes regardless of whether the access succeeded or failed.
+
+### Cache Semantics
+
+The SID resolution cache uses **"first write wins"** semantics: once a SID's mapping is stored, it is not overwritten for the duration of the run. This ensures stable, predictable resolution results.
+
+The cache is implemented as a `Dictionary<string, object>`:
+
+```powershell
+$sidCache = New-Object 'System.Collections.Generic.Dictionary[string,object]'
+```
+
+> **Version note — generic dictionary instantiation:** `New-Object 'System.Collections.Generic.Dictionary[string,object]'` is the way to create a `Dictionary<TKey,TValue>` across all supported PowerShell versions, including PowerShell 1.0. On PowerShell 3.0+, the alternative syntax `[System.Collections.Generic.Dictionary[string,object]]::new()` also works, but `New-Object` is preferred for cross-version consistency. The value type `object` is used here because the cache stores a composite resolution result; a more specific value type (e.g., a `PSCustomObject` or custom class) MAY be used if the implementation defines one.
+
+The cache stores a typed resolution result with:
+
+- **Display name**: Either a `DOMAIN\Username` string (from `Translate()`) or a DN (from LDAP lookup) or a raw SID string (fallback)
+- **Principal type**: The resolved principal type classification
+- **Resolution source**: Which resolution path populated the entry (for diagnostic purposes)
+
+> **Version note — HashSet for SID sets (Tier 2 / PowerShell 3.0+):** For auxiliary data structures that require set-membership semantics (e.g., tracking which SIDs have already been processed, or maintaining a set of known domain SIDs), `[System.Collections.Generic.HashSet[string]]` provides cleaner semantics than `Dictionary<string, bool>` on PowerShell 3.0+ (.NET 3.5+, which is included in .NET 4.0). On PowerShell 1.0/2.0 (.NET Framework 2.0, where `HashSet<T>` is not available), fall back to `New-Object 'System.Collections.Generic.Dictionary[string,bool]'` and use `.ContainsKey($sidString)` for membership checks. The SID resolution cache itself uses `Dictionary<string, object>` (not `HashSet`) because it stores key-value mappings, not just membership.
+
+### Cache Population
+
+The cache is populated from multiple sources during operation:
+
+- **During the main scan**: When an object has an `objectSid` attribute, for domain-specific SIDs (starting with `S-1-5-21-...`), the mapping from SID → DN is inserted directly. For non-domain-specific SIDs (e.g., well-known SIDs found in `CN=ForeignSecurityPrincipals`), `Translate()` is attempted first; only if it throws `IdentityNotMappedException` is the SID → DN mapping inserted as a fallback. Existing cache entries are never overwritten.
+- **During `Translate()` resolution**: A successful translation stores the SID → `DOMAIN\Username` mapping.
+- **During LDAP SID lookup**: A successful lookup stores the SID → DN mapping.
+
+### Principal Type Resolution
+
+Each resolved SID is mapped to one of four principal type classifications. The mapping depends on the resolution path:
+
+**From LDAP (objectClass-based):** The most specific class (last value of the multi-valued `objectClass` attribute) is compared via case-insensitive exact match. In PowerShell, `-eq` on strings is case-insensitive by default, which aligns well with this requirement:
+
+| Most Specific Class | Principal Type | Notes |
+| --- | --- | --- |
+| `computer` | `Computer` | Includes machine accounts |
+| `user` | `User` | Includes `inetOrgPerson` (which inherits from `user` and appears as most-specific class `inetOrgPerson` — see below) |
+| `group` | `Group` | |
+| `msDS-GroupManagedServiceAccount` | `User` | gMSA accounts (inherits from `computer` in AD but logically represents a service identity) |
+| `msDS-ManagedServiceAccount` | `User` | sMSA accounts |
+| `inetOrgPerson` | `User` | Inherits from `user`; the `objectClass` ordering (most-specific-last) ensures this is the last value |
+| `foreignSecurityPrincipal` | `External` | Represents a principal from a trusted domain |
+| Any other class | `External` | |
+
+**From `SecurityIdentifier.Translate()` resolution:** The `Translate()` method returns an `NTAccount` but does not directly provide a `SID_NAME_USE` equivalent. The principal type is set to `External` for `Translate()`-resolved SIDs. Because the cache uses "first write wins" semantics and the resolution steps are sequential (cache → `Translate()` → LDAP), a SID successfully resolved by `Translate()` is cached immediately and the LDAP step is never attempted for that SID — so the `External` type is not subsequently refined. SIDs that are pre-populated during the main scan (from objects with `objectSid`) already have `objectClass`-based types before `Translate()` is ever tried, so they are unaffected.
+
+**Unresolved SIDs:** If resolution fails entirely (cache miss, `Translate()` throws `IdentityNotMappedException`, and LDAP lookup fails), the raw SID string is used as the trustee name with type `External`.
+
+### Foreign Security Principals
+
+`$sid.Translate([System.Security.Principal.NTAccount])` automatically resolves trusted-domain and well-known SIDs, regardless of where they appear in the directory. Foreign security principal objects in `CN=ForeignSecurityPrincipals` do not require special handling — `Translate()` does the right thing for cross-domain and cross-forest SIDs. Truly unresolvable SIDs (e.g., from unreachable forests) fall back to the raw SID string.
+
+### Deleted Trustee Detection
+
+During post-processing, for each naming context, ACEs whose trustee SID cannot be resolved are evaluated for deleted trustee classification:
+
+```powershell
+$domainSid = $trusteeSid.AccountDomainSid
+
+if (($null -ne $domainSid) -and (IsKnownDomainSid $domainSid)) {
+    # Flag as deleted trustee
+}
+```
+
+`$trusteeSid.AccountDomainSid` returns the domain portion of a SID (strips the RID), or `$null` for well-known SIDs with no domain component. If the domain portion matches **any** known domain SID (not just the root domain), the ACE is flagged as a deleted trustee. Unresolvable SIDs from unknown domains or forests remain as orphan ACEs with raw SID trustee strings.
+
+> **Version note — LINQ for filtering (Tier 3 / PowerShell 4.0+):** Where the implementation uses explicit loops to filter or search through the set of known domain SIDs (e.g., iterating through a dictionary or list to find a matching domain SID), on PowerShell 4.0+ (.NET 4.5+), `[System.Linq.Enumerable]::Any(...)` or similar LINQ methods could be used for conciseness. On PowerShell 1.0–3.0, explicit `foreach` loops with early-exit (`break`) MUST be used instead. The `-band` and `-eq` operators used in the examples above work identically across all supported versions.
 
 ---
 
 ## 8. Permission and Rights Interpretation
 
-<!-- TODO: To be completed in a future work effort -->
+### Access Mask Mapping
+
+The tool maps `ActiveDirectoryRights` enum values to human-readable descriptions. When in resolved-name mode (the default), the following mappings apply:
+
+| `ActiveDirectoryRights` Value | Human-Readable Description |
+| --- | --- |
+| `WriteProperty` | "Write attribute {name}" (attribute GUID match), "Write attributes of category {name}" (property set GUID match), or "Write all properties" (no match/no GUID) |
+| `ExtendedRight` | "{Control access name}" or "Perform all application-specific operations" |
+| `CreateChild` | "Create child {class} objects" or "Create child objects of any type" |
+| `DeleteChild` | "Delete child {class} objects" or "Delete child objects of any type" |
+| `WriteOwner` | "Change the owner" |
+| `WriteDacl` | "Add/delete delegations" |
+| `Delete` | "Delete" |
+| `DeleteTree` | "Delete along with all children" |
+| `Self` | "{Validated write name}" or "Perform all validated writes" |
+| `AccessSystemSecurity` | "Add/delete auditing rules" |
+
+Rights checks use bitwise operations compatible with .NET Framework 2.0:
+
+```powershell
+if (($rule.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::WriteProperty) -ne 0) {
+    # WriteProperty is set
+}
+```
+
+> **Version note — `Enum.HasFlag()` is NOT used in the baseline spec** because it requires .NET 4.0+ (Tier 2). On PowerShell 3.0+ (where .NET 4.0+ is available), `$rule.ActiveDirectoryRights.HasFlag([System.DirectoryServices.ActiveDirectoryRights]::WriteProperty)` may be used as an alternative for single-flag checks, but the `-band` approach is preferred for code simplicity and cross-version consistency.
+
+### Object Type GUID Resolution
+
+In **resolved-name mode** (the default), the `ObjectType` GUID resolution is **conditional on which access right is set**:
+
+| Access Right | GUID Resolution Order |
+| --- | --- |
+| `WriteProperty` | attribute GUID → property set GUID → (fallback: "Write all properties") |
+| `ExtendedRight` | control access right GUID → (fallback: "Perform all application-specific operations") |
+| `CreateChild` | class GUID → (fallback: "Create child objects of any type") |
+| `DeleteChild` | class GUID → (fallback: "Delete child objects of any type") |
+| `Self` | validated write GUID → (fallback: "Perform all validated writes") |
+
+The `ObjectType` GUID is checked for the empty GUID to determine whether a specific schema object is targeted:
+
+```powershell
+if ($rule.ObjectType -eq [System.Guid]::Empty) {
+    # No specific ObjectType — use the generic fallback description
+} else {
+    # Look up $rule.ObjectType against the appropriate schema dictionary
+}
+```
+
+GUID lookups are performed against dictionaries populated from schema data (see Section 3). Each dictionary maps a `[System.Guid]` to a schema object name (e.g., attribute name, class name, control access right name). The lookup uses the dictionary's `.ContainsKey()` method and indexer to resolve the GUID to a human-readable name.
+
+> **Version note — LINQ for schema dictionary filtering (Tier 3 / PowerShell 4.0+):** Where the implementation uses explicit loops to iterate through schema maps for GUID resolution (e.g., searching multiple dictionaries sequentially), on PowerShell 4.0+ (.NET 4.5+), `[System.Linq.Enumerable]::Where(...)` or `[System.Linq.Enumerable]::FirstOrDefault(...)` could be used for more concise filtering. On PowerShell 1.0–3.0, explicit `foreach` loops MUST be used. Since the baseline spec uses keyed dictionary lookups (not linear scans), LINQ provides minimal benefit for the primary resolution path but may be useful for diagnostic or raw-mode enumeration scenarios.
+
+In **raw mode** (`-ShowRaw`), the GUID is resolved sequentially across all schema categories:
+
+1. Class GUID → class name
+2. Attribute GUID → attribute name
+3. Control access right GUID → control access name
+4. Property set GUID → property set name
+5. Validated write GUID → validated write name
+
+Raw mode displays hex values and symbolic names for the access rights:
+
+```powershell
+$hexRights = ([int]$rule.ActiveDirectoryRights).ToString("X8")
+$symbolicRights = $rule.ActiveDirectoryRights.ToString()
+```
+
+The `.ToString("X8")` format specifier produces an 8-character zero-padded uppercase hexadecimal string (e.g., `"00000020"` for `WriteProperty`). The parameterless `.ToString()` on a `[Flags]` enum produces the symbolic name(s) (e.g., `"WriteProperty"` or `"ReadProperty, WriteProperty"`). Both `.ToString()` calls are .NET instance methods that work identically across all supported PowerShell versions.
+
+### Inherited Object Type Resolution and Inheritance Scope
+
+When in resolved-name mode and `ContainerInherit` is set in `InheritanceFlags`, the `InheritedObjectType` GUID is resolved against class GUIDs to determine which child object type the ACE applies to:
+
+```powershell
+if (($rule.InheritanceFlags -band [System.Security.AccessControl.InheritanceFlags]::ContainerInherit) -ne 0) {
+    if ($rule.InheritedObjectType -ne [System.Guid]::Empty) {
+        # Resolve InheritedObjectType against class GUIDs
+        # → "on all {class_name} child objects"
+    } else {
+        # → "on all child objects"
+    }
+
+    if (($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -eq 0) {
+        # Append "and the container itself"
+    }
+}
+```
+
+- "on all {class_name} child objects" if `InheritedObjectType` resolves to a class
+- "on all child objects" otherwise
+- "and the container itself" is appended if `InheritOnly` is NOT set in `PropagationFlags`
+
+When `ContainerInherit` is not set, no inheritance scope text is included.
 
 ---
 
