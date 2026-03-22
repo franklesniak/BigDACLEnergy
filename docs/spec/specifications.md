@@ -677,8 +677,9 @@ Membership evaluation MUST:
 
 - Be transitive (nested groups).
 - Handle primary group semantics (`memberOf` does not include the primary group; `primaryGroupID` must be evaluated separately).
-- Handle cross-domain/foreign security principals as feasible.
-- Fail-safe (undetermined → no suppression).
+- Handle cross-domain/foreign security principals when SID expansion across the relevant trust is available.
+- When cross-domain/foreign SID expansion is not available, fails, or yields incomplete results, treat the principal's SDProp membership as **Undetermined** and do not assume membership or non-membership in the protected set.
+- Fail-safe: any Undetermined SDProp membership status (including cases caused by cross-domain/foreign evaluation issues or other membership-evaluation errors) MUST result in SDProp status being set to **Undetermined** for that object and MUST NOT cause AdminSDHolder-template ACE suppression to be applied.
 
 ##### Allowed membership evaluation approaches
 
@@ -690,9 +691,9 @@ Membership evaluation MUST:
 
 **2) Directory expansion:**
 
-- Resolve protected group SIDs to group DNs first (SID → object → DN), then evaluate transitive membership (e.g., chain rule) using the DN.
+- Resolve protected group SIDs to group DNs first (SID → object → DN), then evaluate recursive group membership for each principal by following `member` / `memberOf` links until no new groups are discovered. This behavior MUST be equivalent to applying the LDAP matching rule `LDAP_MATCHING_RULE_IN_CHAIN` (`1.2.840.113556.1.4.1941`) or an explicit recursive expansion that produces the same result set.
 - Do not embed raw SIDs into `memberOf` chain matching; `memberOf` compares DNs.
-- If using `memberOf` traversal, explicitly compute and include the principal's primary group via `primaryGroupID`.
+- If using `memberOf` traversal (via LDAP filter or explicit recursion), explicitly compute and include the principal's primary group via `primaryGroupID`.
 
 ##### Performance guidance
 
