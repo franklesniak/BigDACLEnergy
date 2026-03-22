@@ -716,18 +716,30 @@ During post-processing, for each naming context, ACEs whose trustee SID cannot b
 #   - [System.Collections.Generic.HashSet[string]]        (Tier 2 / PowerShell 3.0+)
 # This helper abstracts the membership check so callers do not need to know
 # which backing type is in use.
+#
+# IMPORTANT: The HashSet<T> type does not exist on PowerShell 1.0/2.0 (.NET 2.0).
+# Referencing [System.Collections.Generic.HashSet[string]] directly would throw
+# a runtime error on those versions. The version check via Get-PSVersion gates
+# the HashSet branch so the type is never referenced on Tier 1.
 function Test-KnownDomainSid {
     param (
         [string]$SidValue
     )
 
-    if ($knownDomainSids -is [System.Collections.Generic.HashSet[string]]) {
-        return $knownDomainSids.Contains($SidValue)
-    } elseif ($knownDomainSids -is [System.Collections.Generic.Dictionary[string,bool]]) {
+    $versionPS = Get-PSVersion
+    if ($versionPS.Major -ge 3) {
+        # Tier 2+: HashSet<T> is available (.NET 3.5+)
+        if ($knownDomainSids -is [System.Collections.Generic.HashSet[string]]) {
+            return $knownDomainSids.Contains($SidValue)
+        }
+    }
+
+    # Tier 1 / fallback: Dictionary<string,bool>
+    if ($knownDomainSids -is [System.Collections.Generic.Dictionary[string,bool]]) {
         return $knownDomainSids.ContainsKey($SidValue)
     }
 
-    # Fallback: treat $knownDomainSids as an enumerable of SID strings
+    # Final fallback: treat $knownDomainSids as an enumerable of SID strings
     foreach ($sid in $knownDomainSids) {
         if ($sid -eq $SidValue) { return $true }
     }
