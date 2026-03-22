@@ -613,14 +613,14 @@ SDProp in-scope evaluation is conceptually **tri-state**:
 2. **Not in-scope** — the tool has positively determined that the object is *not* SDProp-protected per the rules above.
 3. **Undetermined** — the tool cannot reliably determine SDProp status (for example, due to permissions errors, data gaps, or other failures).
 
-For **suppression behavior only**, if SDProp in-scope status is **Undetermined** the tool MUST **fail safe** and treat the object as **not protected for suppression purposes** (i.e., it MUST NOT suppress ACEs based on SDProp, and MUST report those ACEs).
+For **suppression behavior only**, if SDProp in-scope status is **Undetermined** the tool MUST **fail-safe** and treat the object as **not protected for suppression purposes** (i.e., it MUST NOT suppress ACEs based on SDProp, and MUST report those ACEs).
 
 For **AdminSDHolder anomaly detection**, the tool:
 
 - MUST emit `AdminSDHolder anomaly: stale adminCount` or corresponding "cleared" anomalies **only** when SDProp status is explicitly **In-scope** or **Not in-scope**, and
 - MUST NOT emit any AdminSDHolder stale/cleared anomaly rows when SDProp status is **Undetermined**.
 
-**Operator-configured additional suppression:** Separately from the authoritative SDProp in-scope definition above, the tool MUST support an operator-configurable list of additional SIDs whose ACEs should also be suppressed against the AdminSDHolder template, via the suppression-override SID list defined in the *Protected Set Data* section below. That section specifies the file format, location, loading behavior, and precedence of the suppression-override list relative to the shipped protected-set artifact. This override mechanism does not change the tool's SDProp in-scope determination, but only adds additional SIDs to the suppression set. Objects matched only by this override list are not treated or reported as SDProp in-scope in any SDProp-related reporting/telemetry described in this specification (including AdminSDHolder anomaly `Warning` rows).
+**Operator-configured additional suppression:** Separately from the authoritative SDProp in-scope definition above, the tool MUST support an operator-configurable list of additional SIDs whose ACEs should also be suppressed against the AdminSDHolder template, via the suppression-override SID list, as further described in the *Protected Set Data* section below. This override mechanism does not change the tool's SDProp in-scope determination, but only adds additional SIDs to the suppression set. Objects matched only by this override list are not treated or reported as SDProp in-scope in any SDProp-related reporting/telemetry described in this specification (including AdminSDHolder anomaly `Warning` rows).
 
 ##### Security principal scope
 
@@ -661,7 +661,7 @@ Optional explicit protected accounts (enabled by default; configurable):
 | `<domain SID>-500` | Administrator |
 | `<domain SID>-502` | KRBTGT |
 
-> **Forest scope requirement:** In multi-domain forests, `<domain SID>` and `<forest root domain SID>` may differ. The tool MUST determine the forest root domain SID (i.e., `<forest root domain SID>`) to correctly evaluate `…-518` (Schema Admins) and `…-519` (Enterprise Admins). The forest root domain DN is available via RootDSE's `rootDomainNamingContext` attribute (see Section 1); its SID is obtained by resolving that DN to a domain object and reading its `objectSid`. If the forest root domain SID cannot be determined, the tool MUST fail safe — the SDProp evaluation status for Schema Admins and Enterprise Admins MUST be treated as **Undetermined** (their SIDs cannot be evaluated). Objects that would only be protected via those groups therefore inherit an **Undetermined** SDProp status: this Undetermined state MUST be used only to disable suppression based on those groups and MUST NOT cause AdminSDHolder anomalies (including `stale adminCount`) to be emitted solely due to this condition.
+> **Forest scope requirement:** In multi-domain forests, `<domain SID>` and `<forest root domain SID>` may differ. The tool MUST determine the forest root domain SID (i.e., `<forest root domain SID>`) to correctly evaluate `…-518` (Schema Admins) and `…-519` (Enterprise Admins). The forest root domain DN is available via RootDSE's `rootDomainNamingContext` attribute (see Section 1); its SID is obtained by resolving that DN to a domain object and reading its `objectSid`. If the forest root domain SID cannot be determined, the tool MUST fail-safe — the SDProp evaluation status for Schema Admins and Enterprise Admins MUST be treated as **Undetermined** (their SIDs cannot be evaluated). Objects that would only be protected via those groups therefore inherit an **Undetermined** SDProp status: this Undetermined state MUST be used only to disable suppression based on those groups and MUST NOT cause AdminSDHolder anomalies (including `stale adminCount`) to be emitted solely due to this condition.
 
 ##### Protected set candidates (future authoritative baseline; non-authoritative via configuration)
 
@@ -678,7 +678,7 @@ Membership evaluation MUST:
 - Be transitive (nested groups).
 - Handle primary group semantics (`memberOf` does not include the primary group; `primaryGroupID` must be evaluated separately).
 - Handle cross-domain/foreign security principals as feasible.
-- Fail safe (undetermined → no suppression).
+- Fail-safe (undetermined → no suppression).
 
 ##### Allowed membership evaluation approaches
 
@@ -744,7 +744,7 @@ These findings help operations/security teams identify AdminSDHolder hygiene iss
 
 If suppression depends on comparing ACEs to the AdminSDHolder template DACL, the data collection MUST include:
 
-- `CN=AdminSDHolder,CN=System,{domainDN}` with its full `nTSecurityDescriptor` (or equivalent export fields).
+- `CN=AdminSDHolder,CN=System,<domainDN>` with its full `nTSecurityDescriptor` (or equivalent export fields).
 - Sufficient attributes to evaluate protected status: `objectSid`, group membership inputs (`tokenGroups` if used, or enough membership data to expand group nesting), `primaryGroupID` (if using `memberOf`-based expansion).
 - `computer` objects (needed if DC/RODC-related candidates are later enabled).
 - Disabled accounts (e.g., KRBTGT should not be filtered out).
