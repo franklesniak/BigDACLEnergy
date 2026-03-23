@@ -940,6 +940,8 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
         $xml.LoadXml($xmlString)
         ```
 
+        > **Here-string terminator:** In PowerShell, the closing `"@` of a here-string MUST appear at the very beginning of the line (column 1) with no leading whitespace. The indentation shown above is for display purposes within this specification only. In actual implementation, the `"@` line must be unindented.
+
         This enables single-file deployment without external dependencies but makes editing delegation definitions harder.
 
     3. **`DATA` section (PS 2.0+):** PowerShell 2.0 and later support `DATA` sections for embedding static data. However, `DATA` sections are not available in PowerShell 1.0 and provide limited benefit over here-strings for XML content. This approach is NOT RECOMMENDED for cross-version compatibility.
