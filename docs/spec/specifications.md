@@ -643,6 +643,8 @@ The tool MUST also support a **separate operator-configurable suppression-overri
 
 Baseline protected set (minimum):
 
+> **Scope clarification:** The SDProp protected set determines which **objects** are in-scope for AdminSDHolder-template ACE suppression (i.e., whose ACEs are compared against the AdminSDHolder template). This is independent from the *Ignored Trustee SIDs* list (Section 6.1), which determines which **trustee SIDs** are filtered from output. A group such as BUILTIN\Account Operators may appear in both lists for different purposes: it is in the protected set because its *members'* ACEs are suppressed, and it may or may not be in the ignored-trustee list depending on whether the *group itself as a trustee* should be reported.
+
 | SID | Identity |
 | --- | --- |
 | `S-1-5-32-544` | BUILTIN\Administrators |
@@ -699,7 +701,7 @@ Membership evaluation MUST:
 
 For scale, prefer:
 
-- Precompute transitive membership for protected groups once (per domain/forest), produce a set-membership structure of protected principal SIDs that supports O(1) membership checks (e.g., `HashSet[string]` on PowerShell 3.0+ where `HashSet<T>` is available, or `Dictionary[string,bool]` on PowerShell 1.0/2.0), then do per-object checks against this structure.
+- Precompute transitive membership for protected groups once (per domain/forest), produce a set-membership structure of protected principal SIDs that supports O(1) membership checks (e.g., `[System.Collections.Generic.HashSet[string]]` on PowerShell 3.0+ where `HashSet<T>` is available, or `[System.Collections.Generic.Dictionary[string,bool]]` on PowerShell 1.0/2.0), then do per-object checks against this structure.
 - Cache: domain SID, forest-root domain SID, protected group SID → group DN (if doing DN-based chain matching).
 - Fail-safe rule still applies: incomplete precompute → no suppression for affected objects.
 
