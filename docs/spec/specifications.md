@@ -944,7 +944,7 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
 
     3. **`DATA` section (PS 2.0+):** PowerShell 2.0 and later support `DATA` sections for embedding static data. However, `DATA` sections are not available in PowerShell 1.0 and provide limited benefit over here-strings for XML content. This approach is NOT RECOMMENDED for cross-version compatibility.
 
-    > **Recommendation:** Use approach (a) — a separate XML file — as the primary mechanism. This aligns with the tool's existing support for user-provided XML files (`-Delegations`, `-Templates`) and enables the same XSD validation path for both built-in and user-provided definitions. Approach (b) may be used as a fallback when single-file distribution is required.
+    > **Recommendation:** Use approach (1) — a separate XML file — as the primary mechanism. This aligns with the tool's existing support for user-provided XML files (`-Delegations`, `-Templates`) and enables the same XSD validation path for both built-in and user-provided definitions. Approach (2) may be used as a fallback when single-file distribution is required.
 
 - **Reading XML file content across PowerShell versions:** The `[System.Xml.XmlDocument].Load($path)` method works in all PowerShell versions and is the recommended approach for loading XML from files. For scenarios where XML content must be read as a string first (e.g., for preprocessing), use version-conditional logic:
 
@@ -1082,7 +1082,7 @@ This deterministic ordering enables diff-based change tracking between runs.
 
 For each location/result pair in the scan results, the following record types are generated in this per-location output sequence:
 
-1. **Per-location processing errors** (if `-ShowWarningUnreadable`): One `Warning` record with the error message. This covers any error entry in the results, including unreadable security descriptors, missing/unreadable `objectClass` attributes, and unparseable schema `defaultSecurityDescriptor` SDDL strings. The `Trustee` column is set to `Global` and the `Trustee type` column is empty.
+1. **Per-location processing errors** (if `-ShowWarningUnreadable` is enabled; see Section 13 for CLI flag definitions): One `Warning` record with the error message. This covers any error entry in the results, including unreadable security descriptors, missing/unreadable `objectClass` attributes, and unparseable schema `defaultSecurityDescriptor` SDDL strings. The `Trustee` column is set to `Global` and the `Trustee type` column is empty.
 2. **Owner**: One `Owner` record if the object's owner is not in the ignored trustee set and was not filtered by CREATE_CHILD analysis.
 3. **DACL protection**: One `Warning` record if `AreAccessRulesProtected` is `$true` and the object is not in an excluded category. The `Trustee` column is set to `Global` and the `Trustee type` column is empty.
 4. **Non-canonical ACL**: One `Warning` record if the ACL is not in canonical order. The offending ACE is described. The `Trustee` column is set to `Global` and the `Trustee type` column is empty.
@@ -1253,7 +1253,7 @@ In PowerShell, XML parsing uses the `System.Xml.XmlDocument` class with XPath-ba
 
 ### XSD Schema Validation
 
-All XML files loaded by the tool — whether they contain delegation definitions, template definitions, risk classification configuration, or any combination thereof — are validated against the same `<adeleg>` XSD schema at load time. This includes standalone risk-configuration files that contain only `<unsafeTrustees>`, `<tier0Resources>`, or `<dangerousDelegations>` elements. Validation is performed by creating an `XmlReader` with validation settings and reading the document through it:
+All XML files loaded by the tool — whether they contain delegation definitions, template definitions, risk classification configuration, or any combination thereof — are validated against the same `<adeleg>` XSD schema at load time. This includes standalone risk-configuration files that contain only `<unsafeTrustees>`, `<tier0Resources>`, or `<dangerousDelegations>` elements. Validation is performed by creating an `XmlReader` with validation settings and reading the document through it. The load-and-validate operation MUST be wrapped in a function following the `trap`-based error handling pattern (see Section 1) to both ensure resource cleanup AND detect validation failures:
 
 ```powershell
 $settings = New-Object -TypeName System.Xml.XmlReaderSettings
@@ -1268,19 +1268,36 @@ $settings.add_ValidationEventHandler({
 })
 
 $reader = [System.Xml.XmlReader]::Create($xmlPath, $settings)
-
-# Intentional trap to suppress terminating errors so disposal is reached
-trap { }
-
 $doc = New-Object -TypeName System.Xml.XmlDocument
+
+# Wrap the Load() call in a function that uses the trap-based error
+# detection pattern. The function's trap { } suppresses the terminating
+# error thrown by the validation handler, and Get-ReferenceToLastError /
+# Test-ErrorOccurred detect whether the Load() failed.
+$refLastKnownError = Get-ReferenceToLastError
+
+$actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+$global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+
+trap { }
 $doc.Load($reader)  # Validation occurs during Load
 
+$global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+
+# Close/dispose the reader regardless of whether Load() succeeded or failed
 $reader.Close()
+
+$refNewestCurrentError = Get-ReferenceToLastError
+if (Test-ErrorOccurred $refLastKnownError $refNewestCurrentError) {
+    # Validation failed — report the error and abort processing of this XML file.
+    # $Error[0] contains the XmlSchemaValidationException with line number,
+    # position, and inner exception context for precise error reporting.
+}
 ```
 
-> **Resource cleanup:** The `XmlReader` implements `IDisposable` and MUST be closed/disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the empty `trap { }` statement in the enclosing scope suppresses terminating errors and allows execution to continue with the next statement, ensuring that `$reader.Close()` is reached even if `$doc.Load($reader)` throws a validation error. The validation event handler throws `$eventArgs.Exception` (the `XmlSchemaValidationException` from `ValidationEventArgs`), which preserves line number, position, and inner exception context for precise error reporting. The empty `trap` body enables continuation to the `$reader.Close()` call — a non-empty `trap` body that re-throws would prevent this cleanup.
+> **Resource cleanup and error detection:** The `XmlReader` implements `IDisposable` and MUST be closed/disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the `trap`-based error handling pattern serves dual purposes: (1) the empty `trap { }` suppresses the terminating error thrown by the validation event handler, allowing execution to continue to `$reader.Close()`, and (2) the `Get-ReferenceToLastError` / `Test-ErrorOccurred` helper functions (see Section 1, "Error handling via function wrappers") detect whether `$doc.Load($reader)` failed by comparing `$Error` stack references before and after the operation. This ensures both reliable resource cleanup AND reliable error detection — the load failure is not silently swallowed.
 
-If the XML does not conform to the XSD schema, the `ValidationEventHandler` fires and throws the `XmlSchemaValidationException`, which preserves line number, position, and inner exception context for precise error reporting. This prevents invalid definitions from being processed and provides formal structural validation without third-party libraries.
+If the XML does not conform to the XSD schema, the `ValidationEventHandler` fires and throws the `XmlSchemaValidationException`, which preserves line number, position, and inner exception context for precise error reporting. The `Test-ErrorOccurred` check after `$reader.Close()` detects this failure and prevents invalid definitions from being processed. This provides formal structural validation without third-party libraries.
 
 ### Access Mask Representation
 
