@@ -1255,9 +1255,15 @@ In PowerShell, XML parsing uses the `System.Xml.XmlDocument` class with XPath-ba
 
 ### XSD Schema Validation
 
-All XML files loaded by the tool — whether they contain delegation definitions, template definitions, risk classification configuration, or any combination thereof — are validated against the same `<adeleg>` XSD schema at load time. This includes standalone risk-configuration files that contain only `<unsafeTrustees>`, `<tier0Resources>`, or `<dangerousDelegations>` elements. Validation is performed by creating an `XmlReader` with validation settings and reading the document through it. The load-and-validate operation MUST be wrapped in a function following the `trap`-based error handling pattern (see Section 1) to both ensure resource cleanup AND detect validation failures:
+All XML files loaded by the tool — whether they contain delegation definitions, template definitions, risk classification configuration, or any combination thereof — are validated against the same `<adeleg>` XSD schema at load time. This includes standalone risk-configuration files that contain only `<unsafeTrustees>`, `<tier0Resources>`, or `<dangerousDelegations>` elements. Validation is performed by creating an `XmlReader` with validation settings and reading the document through it. The load-and-validate operation MUST be wrapped in a function following one of the two wrapper patterns defined in Section 1 ("Error handling via function wrappers" — `_SimpleFunctionTemplate.ps1` or `_RobustCloudServiceFunctionTemplate.ps1`) to both ensure resource cleanup AND detect validation failures. The following code illustrates the key elements as they would appear inside the wrapper function:
 
 ```powershell
+# The wrapper function's trap { } at function scope catches any terminating
+# error from XmlReader.Create() or $doc.Load(), allowing execution to
+# continue to reader cleanup and error detection.
+trap { }
+
+# Reliable setup: XmlReaderSettings configuration is not error-prone
 $settings = New-Object -TypeName System.Xml.XmlReaderSettings
 [void]($settings.Schemas.Add($null, $xsdPath))
 $settings.ValidationType = [System.Xml.ValidationType]::Schema
@@ -1269,37 +1275,45 @@ $settings.add_ValidationEventHandler({
     throw $eventArgs.Exception
 })
 
-$reader = [System.Xml.XmlReader]::Create($xmlPath, $settings)
+$reader = $null
 $doc = New-Object -TypeName System.Xml.XmlDocument
 
-# Wrap the Load() call in a function that uses the trap-based error
-# detection pattern. The function's trap { } suppresses the terminating
-# error thrown by the validation handler, and Get-ReferenceToLastError /
-# Test-ErrorOccurred detect whether the Load() failed.
+# Capture error state before the error-prone operations
 $refLastKnownError = Get-ReferenceToLastError
 
 $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
 $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
-trap { }
+# Error-prone operations: reader creation and document loading.
+# If XmlReader.Create() fails, $reader remains $null and $doc.Load()
+# will also fail; the trap suppresses both errors.
+$reader = [System.Xml.XmlReader]::Create($xmlPath, $settings)
 $doc.Load($reader)  # Validation occurs during Load
 
+# Restore error preference
 $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
 
-# Close/dispose the reader regardless of whether Load() succeeded or failed
-$reader.Close()
+# Close/dispose the reader regardless of whether operations succeeded
+# or failed. The null check handles the case where XmlReader.Create()
+# itself failed and $reader was never assigned.
+if ($null -ne $reader) {
+    $reader.Close()
+}
 
+# Detect whether any error occurred during reader creation or loading
 $refNewestCurrentError = Get-ReferenceToLastError
 if (Test-ErrorOccurred $refLastKnownError $refNewestCurrentError) {
-    # Validation failed — report the error and abort processing of this XML file.
-    # $Error[0] contains the XmlSchemaValidationException with line number,
+    # Validation failed — report the error and abort processing of
+    # this XML file. $Error[0] contains the exception
+    # (XmlSchemaValidationException for schema violations, or other
+    # .NET exceptions for reader creation failures) with line number,
     # position, and inner exception context for precise error reporting.
 }
 ```
 
-> **Resource cleanup and error detection:** The `XmlReader` implements `IDisposable` and MUST be closed/disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the `trap`-based error handling pattern serves dual purposes: (1) the empty `trap { }` suppresses the terminating error thrown by the validation event handler, allowing execution to continue to `$reader.Close()`, and (2) the `Get-ReferenceToLastError` / `Test-ErrorOccurred` helper functions (see Section 1, "Error handling via function wrappers") detect whether `$doc.Load($reader)` failed by comparing `$Error` stack references before and after the operation. This ensures both reliable resource cleanup AND reliable error detection — the load failure is not silently swallowed.
+> **Resource cleanup and error detection:** The `XmlReader` implements `IDisposable` and MUST be closed/disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the wrapper function pattern serves dual purposes: (1) the `trap { }` at function scope suppresses terminating errors from **both** `XmlReader.Create()` and `$doc.Load($reader)`, allowing execution to continue to reader cleanup, and (2) the `Get-ReferenceToLastError` / `Test-ErrorOccurred` helper functions (see Section 1, "Error handling via function wrappers") detect whether either operation failed by comparing `$Error` stack references before and after the operations. The conditional `$reader.Close()` (with null check) ensures cleanup is safe even if reader creation itself failed. This ensures both reliable resource cleanup AND reliable error detection — failures are not silently swallowed.
 
-If the XML does not conform to the XSD schema, the `ValidationEventHandler` fires and throws the `XmlSchemaValidationException`, which preserves line number, position, and inner exception context for precise error reporting. The `Test-ErrorOccurred` check after `$reader.Close()` detects this failure and prevents invalid definitions from being processed. This provides formal structural validation without third-party libraries.
+If the XML does not conform to the XSD schema, the `ValidationEventHandler` fires and throws the `XmlSchemaValidationException`, which preserves line number, position, and inner exception context for precise error reporting. The `Test-ErrorOccurred` check after reader cleanup detects this failure and prevents invalid definitions from being processed. This provides formal structural validation without third-party libraries.
 
 ### Access Mask Representation
 
