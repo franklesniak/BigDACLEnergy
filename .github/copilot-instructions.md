@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD013 -->
 # Repository Copilot Instructions (Repo-Wide Constitution)
 
-**Version:** 1.5.20260617.0
+**Version:** 1.5.20260617.1
 
 ## Metadata
 
@@ -12,6 +12,11 @@
 - **Related:** [Documentation Writing Style](instructions/docs.instructions.md)
 
 These instructions are authoritative for all changes in this repository.
+
+## Source of Truth
+
+- Read **`docs/spec/specifications.md`** before making changes.
+- If any instruction here conflicts with the spec, **the spec wins**.
 
 ## Protected Instruction Files
 
