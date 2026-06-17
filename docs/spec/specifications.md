@@ -1127,17 +1127,45 @@ For each location/result pair in the scan results, the following record types ar
   $writer.NewLine = "`r`n"
   ```
 
-  The `FileStream` and `StreamWriter` MUST be disposed after all CSV rows are written. Since `try/finally` MUST NOT be used (see Section 1), use the `trap`-based error handling pattern to ensure `.Close()` is reached. `StreamWriter.Close()` flushes buffered output and disposes the underlying stream — omitting this risks truncating the final bytes:
+  The `FileStream` and `StreamWriter` MUST be disposed after all CSV rows are written, **and** write/flush/close failures MUST be detected — not silently swallowed — so a partial or truncated CSV is reported rather than mistaken for a successful export. Since `try/finally` MUST NOT be used (see Section 1), wrap the writes and disposal in a function following the same `trap`-based pattern **with error detection** (`Get-ReferenceToLastError` / `Test-ErrorOccurred`) that Section 1 requires for error-prone operations. The empty `trap { }` ensures `.Close()` is reached even if a `WriteLine()` throws; `StreamWriter.Close()` flushes buffered output and disposes the underlying stream — omitting this risks truncating the final bytes:
 
   ```powershell
-  trap {
-      if ($null -ne $writer) { $writer.Close() }
-      elseif ($null -ne $stream) { $stream.Close() }
+  # trap { } ensures .Close() is reached even if a WriteLine() or the final
+  # flush throws, allowing execution to continue to cleanup and detection.
+  trap { }
+
+  # Capture the error baseline before the error-prone write/close operations.
+  $refLastKnownError = Get-ReferenceToLastError
+
+  $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+  $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+
+  # Error-prone operations: each WriteLine() and the final Close() can fail
+  # (disk full, quota exceeded, permission loss, broken pipe). Close() also
+  # flushes buffered output, so a flush failure surfaces here.
+  # ... write CSV rows via $writer.WriteLine(...) ...
+  if ($null -ne $writer) {
+      $writer.Close()
   }
 
-  # ... write CSV rows via $writer.WriteLine(...) ...
+  # Restore error preference
+  $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
 
-  $writer.Close()
+  # Fallback: if $writer.Close() threw before disposing the underlying stream,
+  # close the stream directly so the file handle is not leaked. Closing an
+  # already-closed stream is a safe no-op.
+  if ($null -ne $stream) {
+      $stream.Close()
+  }
+
+  # Detect whether any write or close/flush failed. If so, the CSV is
+  # potentially partial/truncated: the failure MUST be reported and the
+  # incomplete output MUST NOT be treated as a successful export (e.g., remove
+  # the incomplete file and surface the error to the caller).
+  $refNewestCurrentError = Get-ReferenceToLastError
+  if (Test-ErrorOccurred $refLastKnownError $refNewestCurrentError) {
+      # Report the write/close failure and treat the CSV export as failed.
+  }
   ```
 
 - **Stdout output** (when `-Csv -` or default): Wrap `[System.Console]::OpenStandardOutput()` in a `StreamWriter`:
@@ -1150,7 +1178,7 @@ For each location/result pair in the scan results, the following record types ar
   $writer.NewLine = "`r`n"
   ```
 
-  **Do NOT use `[System.Console]::Out` directly** for CSV output, as `[System.Console]::OutputEncoding` defaults to the system's OEM code page on Windows. The `StreamWriter` must be disposed (or at minimum flushed) after all CSV rows are written — `StreamWriter` buffers output internally, so omitting `.Flush()` / `.Close()` risks truncating the final bytes. The `trap`-based pattern above handles this.
+  **Do NOT use `[System.Console]::Out` directly** for CSV output, as `[System.Console]::OutputEncoding` defaults to the system's OEM code page on Windows. The `StreamWriter` must be disposed (or at minimum flushed) after all CSV rows are written — `StreamWriter` buffers output internally, so omitting `.Flush()` / `.Close()` risks truncating the final bytes. Apply the **same `trap`-based wrapper *with* `Get-ReferenceToLastError` / `Test-ErrorOccurred` error detection** shown in the file-output example above so that a failed write, flush, or close (for example, a broken pipe when stdout is piped to a full disk) is detected and reported rather than producing a silently truncated stream.
 
   > **Important:** Do NOT use `Out-File`, `Set-Content`, or `Export-Csv` for CSV output. `Out-File` and `Set-Content` in PS 1.0–5.1 default to system locale encoding or UTF-16LE, NOT UTF-8. `Export-Csv` is NOT suitable because: (1) its output format varies by PowerShell version, (2) it adds `#TYPE` information headers by default (suppressible via `-NoTypeInformation`, which is available in all PS versions including PS 1.0), and (3) it does not guarantee RFC 4180 compliance with CRLF line endings across all PS versions. The `StreamWriter` approach is the only reliable cross-version method for producing consistent UTF-8 (no BOM) CSV output.
 
