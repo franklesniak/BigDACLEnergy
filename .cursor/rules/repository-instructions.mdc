@@ -2,9 +2,12 @@
 description: Repository-wide instructions for Cursor Agent in this template.
 alwaysApply: true
 ---
+
+<!-- markdownlint-disable MD013 -->
+
 # Agent Instructions for Cursor Agent
 
-**Version:** 1.0.20260617.0
+**Version:** 1.0.20260617.1
 
 ## Metadata
 
