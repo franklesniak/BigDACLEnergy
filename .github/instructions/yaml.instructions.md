@@ -7,19 +7,19 @@ description: "YAML authoring standards: explicit, conservative, schema-backed, a
 
 # YAML Writing Style
 
-**Version:** 1.5.20260520.0
+**Version:** 1.5.20260617.0
 
 ## Metadata
 
 - **Status:** Active
 - **Owner:** Repository Maintainers
-- **Last Updated:** 2026-05-20
-- **Scope:** Defines authoring standards for all YAML files in this repository, including GitHub Actions workflows, pre-commit configuration, linter configuration, and any other human-authored YAML configuration. Does not cover JSON files (covered by [JSON Writing Style](./json.instructions.md)) or generated YAML artifacts that are owned by another tool's serializer.
-- **Related:** [Repository Copilot Instructions](../copilot-instructions.md), [`.gitattributes` Rules](./gitattributes.instructions.md), [JSON Writing Style](./json.instructions.md), [`.yamllint.yml`](../../.yamllint.yml), [Data-File CI Workflow (`data-ci.yml`)](../workflows/data-ci.yml), [Schemas README](../../schemas/README.md), [Schema Example Tests (`tests/test_schema_examples.py`)](../../tests/test_schema_examples.py), [Template Design Decision — Dedicated JSON and YAML Instruction Files](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/TEMPLATE_DESIGN_DECISIONS.md#design-decision-dedicated-json-and-yaml-instruction-files), [Template Design Decision — Baseline JSON/YAML Linting Stack](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/TEMPLATE_DESIGN_DECISIONS.md#design-decision-baseline-jsonyaml-linting-stack), [Template Design Decision — yamllint truthy.check-keys Default](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/TEMPLATE_DESIGN_DECISIONS.md#design-decision-yamllint-truthycheck-keys-default), [Template Design Decision — yamllint line-length Warning Level Default](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/TEMPLATE_DESIGN_DECISIONS.md#design-decision-yamllint-line-length-warning-level-default), [Template Design Decision — Dedicated Data-File CI Workflow (`data-ci.yml`)](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/TEMPLATE_DESIGN_DECISIONS.md#design-decision-dedicated-data-file-ci-workflow-data-ciyml), [Template Design Decision — Prettier Deferral for Data Files](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/TEMPLATE_DESIGN_DECISIONS.md#design-decision-prettier-deferral-for-data-files), [Template Design Decision — Built-in Schema Validation for Real Load-Bearing Configuration Files](https://github.com/franklesniak/copilot-repo-template/blob/HEAD/.github/TEMPLATE_DESIGN_DECISIONS.md#design-decision-built-in-schema-validation-for-real-load-bearing-configuration-files)
+- **Last Updated:** 2026-06-17
+- **Scope:** Defines authoring standards for all YAML files in this repository, including GitHub Actions workflows, pre-commit configuration, and any other human-authored YAML configuration. Does not cover generated YAML artifacts that are owned by another tool's serializer.
+- **Related:** [Repository Copilot Instructions](../copilot-instructions.md), [`.gitattributes` Rules](./gitattributes.instructions.md)
 
 ## Purpose and Scope
 
-YAML in this repository is the preferred format for **human-authored configuration** that benefits from comments, multi-line strings, and a forgiving syntax for editors (workflow files, pre-commit configs, linter configs, application config files committed to source control). JSON is preferred for **strict machine interchange** and for **generated artifacts** (lock files, schema documents, tool outputs, structured data exchanged between systems).
+YAML in this repository is the preferred format for **human-authored configuration** that benefits from comments, multi-line strings, and a forgiving syntax for editors (workflow files, pre-commit configs, application config files committed to source control).
 
 To keep YAML safe to edit, easy to diff, and portable across parsers, this repository adopts a **conservative, tool-friendly subset** of YAML 1.2. Authors **MUST** prefer explicit, unambiguous constructs over clever or compact YAML features that vary by parser.
 
@@ -40,7 +40,7 @@ To keep YAML safe to edit, easy to diff, and portable across parsers, this repos
 - **[Actions]** `setup-*` action `with.*-version:` inputs (for example, `python-version`, `node-version`, `go-version`, and `dotnet-version`) in workflow files under `.github/workflows/` **MUST** pin to a literal release-line selector and **MUST NOT** use a broad floating selector such as `'3.x'`, `'latest'`, or `'*'`. The required granularity follows each ecosystem's release model: Python and Go **MUST** use major.minor (for example, `"3.13"` or `"1.21"`); Node.js **MAY** use major for an LTS line (for example, `"20"`) or major.minor (for example, `"20.18"`); .NET **MAY** use the most specific stable SDK channel selector documented by `actions/setup-dotnet`, such as major.minor.x (for example, `"8.0.x"`); for other ecosystems, use the most specific stable release-line selector documented by the action's README.
 - **[Actions]** Documentation/navigation comments above `uses:` lines **MUST** use versionless upstream URLs; the `uses:` line remains the authoritative action version.
 - **[Actions]** Comments documenting where a GitHub Actions `with:` tool-version input is pinned, or that such a value must stay aligned across files, **SHOULD** describe the membership criterion instead of a hardcoded workflow-file list; if a concrete file list is included for convenience, it **SHOULD** be labeled as a non-authoritative snapshot.
-- **[Schemas]** Schema-backed YAML **MUST** pass any schema validator wired into pre-commit or CI; where no validator is wired up for a particular file family, authors **SHOULD** run the appropriate validator locally before committing.
+- **[Validation]** YAML **MUST** pass `check-yaml` and any other validator wired into pre-commit or CI; where no validator is wired up for a particular file family, authors **SHOULD** run the appropriate validator locally before committing.
 - **[Naming]** YAML filenames **SHOULD** be lowercase kebab-case; GitHub Actions workflows **MUST** use the `.yml` extension; project-owned YAML **MUST** choose `.yml` or `.yaml` and use it consistently.
 - **[IssueForms]** In `.github/ISSUE_TEMPLATE/*.yml`, repo-internal targets in both issue-form `value:` Markdown links (e.g., `bug_report.yml`) and `config.yml` `contact_links` `url:` fields **MUST** use absolute `https://github.com/OWNER/REPO/...` URLs (with `blob/HEAD` for file links); relative paths **MUST NOT** be used. The two file types fail for different reasons: `value:` Markdown blocks render at `/{owner}/{repo}/issues/new?...` so relative paths resolve against that URL and 404, while `contact_links` `url:` fields are not Markdown at all — GitHub validates them as absolute URLs at form-load time and rejects relative values outright.
 
@@ -48,7 +48,7 @@ To keep YAML safe to edit, easy to diff, and portable across parsers, this repos
 
 - Authors **SHOULD** target **YAML 1.2-compatible** values and avoid relying on parser-specific extensions.
 - Authors **MUST** avoid the YAML 1.1 *non-lowercase-`true`/`false`* truthy tokens that this guide does not permit as booleans (`y`, `Y`, `yes`, `Yes`, `YES`, `n`, `N`, `no`, `No`, `NO`, `on`, `On`, `ON`, `off`, `Off`, `OFF`, `True`, `TRUE`, `False`, `FALSE`); only lowercase `true` and `false` are allowed as booleans (see "Booleans, Nulls, and Numbers"). Many widely-deployed parsers (including those used by GitHub Actions, `js-yaml` defaults, and some legacy PyYAML configurations) still resolve some or all of these YAML 1.1 tokens as booleans, so any string value that would otherwise match one of them **MUST** be quoted.
-- Ecosystem-specific validators (for example, Kubernetes manifest validators, OpenAPI validators, Helm validators, Ansible validators) **SHOULD** be adopted only when the repository actually uses those ecosystems. Generic YAML guidance **MUST NOT** require validators that are irrelevant to the repository's stack. The shipped baseline (`check-yaml`, `yamllint`, `actionlint`, and `check-jsonschema` for the worked-example schema and selected real load-bearing configuration files validated against built-in vendor schemas) is described in [Schema-backed YAML](#schema-backed-yaml).
+- Ecosystem-specific validators (for example, Kubernetes manifest validators, OpenAPI validators, Helm validators, Ansible validators) **SHOULD** be adopted only when the repository actually uses those ecosystems. Generic YAML guidance **MUST NOT** require validators that are irrelevant to the repository's stack. The shipped baseline (`check-yaml`) is described in [Validating YAML](#validating-yaml).
 
 ## Formatting Rules
 
@@ -93,7 +93,7 @@ Quote style guidance:
 
 The GitHub Actions workflow trigger key `on:` is a well-known YAML 1.1 truthy hazard. Under YAML 1.1 resolution rules, the unquoted bare key `on` is parsed as the boolean `true`. GitHub Actions itself parses workflows correctly because it does not rely on YAML 1.1 truthy resolution for keys, but **lint tooling** that is YAML 1.1-aware (notably `yamllint`'s `truthy` rule) will flag the `on:` key as a truthy violation by default.
 
-This repository ships a [`yamllint` configuration at `.yamllint.yml`](../../.yamllint.yml) that intentionally sets `truthy.check-keys: false` so that the idiomatic GitHub Actions `on:` key is preserved without per-file exception comments:
+If a repository configures `yamllint`, set `truthy.check-keys: false` so that the idiomatic GitHub Actions `on:` key is preserved without per-file exception comments:
 
 ```yaml
 rules:
@@ -194,9 +194,9 @@ Pinned documentation URLs go stale because Dependabot updates `uses:` references
 
 Prefer a single source of truth for repeated tool-version values where GitHub Actions supports one, such as a workflow-level `env:` value for versions used by multiple steps in one workflow. This guidance covers the residual cross-file case where a GitHub Actions `with:` tool-version input is still pinned in more than one place; it does not endorse duplicating tool versions unnecessarily.
 
-Comments in workflow files under `.github/workflows/` that document where a GitHub Actions `with:` tool-version input is pinned, or state that such a value must be kept in sync across the repository, **SHOULD** describe the membership criterion rather than enumerate a hardcoded list of filenames that nothing keeps in sync. For example, prefer "every `tflint_version:` input passed to `terraform-linters/setup-tflint` under `.github/workflows/`" over a fixed list of workflow filenames.
+Comments in workflow files under `.github/workflows/` that document where a GitHub Actions `with:` tool-version input is pinned, or state that such a value must be kept in sync across the repository, **SHOULD** describe the membership criterion rather than enumerate a hardcoded list of filenames that nothing keeps in sync. For example, prefer "every `node-version:` input passed to `actions/setup-node` under `.github/workflows/`" over a fixed list of workflow filenames.
 
-The criterion **SHOULD NOT** embed the setup action's version (for example, `@v6`), because that action version is a separate Dependabot-managed `uses:` pin and can itself go stale inside comment text. This differs from pinned documentation URLs: tool-version inputs such as `terraform_version` and `tflint_version` are manually maintained CLI/tool versions, so their comment drift comes from unsynchronized manual edits that move, add, or remove pins.
+The criterion **SHOULD NOT** embed the setup action's version (for example, `@v6`), because that action version is a separate Dependabot-managed `uses:` pin and can itself go stale inside comment text. This differs from pinned documentation URLs: tool-version inputs such as `node-version` are manually maintained CLI/runtime versions, so their comment drift comes from unsynchronized manual edits that move, add, or remove pins.
 
 If a concrete file list is included for convenience, it **SHOULD** be marked as a non-authoritative snapshot, for example by prefixing it with "currently," so a stale list does not mislead. This mirrors the repository-wide documentation principle that every list of "things" should be complete or explicitly labeled as partial, and the general YAML comment guidance that comments should explain durable context rather than restate fragile details.
 
@@ -205,20 +205,20 @@ This guidance applies to comments in workflow files under `.github/workflows/` a
 **Compliant:**
 
 ```yaml
-# Keep this tflint_version aligned with every other tflint_version input
-# passed to terraform-linters/setup-tflint under .github/workflows/.
-- uses: terraform-linters/setup-tflint@v6
+# Keep this node-version aligned with every other node-version input
+# passed to actions/setup-node under .github/workflows/.
+- uses: actions/setup-node@v6
   with:
-    tflint_version: "v0.51.1"
+    node-version: "20"
 ```
 
 **Non-compliant:**
 
 ```yaml
-# This tflint_version must match terraform-ci.yml and auto-fix-precommit.yml.
-- uses: terraform-linters/setup-tflint@v6
+# This node-version must match markdownlint.yml and auto-fix-precommit.yml.
+- uses: actions/setup-node@v6
   with:
-    tflint_version: "v0.51.1"
+    node-version: "20"
 ```
 
 ## Issue-form Markdown Links in `.github/ISSUE_TEMPLATE/*.yml`
@@ -272,24 +272,21 @@ Choose the indicator that matches the consumer's expectations. When passing a mu
 - Comments **SHOULD** explain **why** a value is set the way it is, not **what** the value is. Restating the literal value adds noise without information.
 - Comments **MUST NOT** be the only place where behavior is described. If a configuration value's correctness depends on context, that context **MUST** also be captured somewhere a reader will see (in linked documentation, in the surrounding configuration block, or in the consuming code).
 
-## Schema-backed YAML
+## Validating YAML
 
-YAML files that have a published schema **SHOULD** be validated against that schema, using the same MUST/SHOULD/MAY tiers applied to JSON in [JSON Writing Style](./json.instructions.md). This repository wires schema and ecosystem validators into pre-commit and re-runs them in [`.github/workflows/data-ci.yml`](../workflows/data-ci.yml); files covered by those hooks **MUST** pass them. For file families that do not yet have a hook configured, authors **SHOULD** run the appropriate validator locally before committing. The shipped pipeline is described below; CI/pre-commit integration is owned by the repository's tooling configuration rather than by this guide.
+YAML files **SHOULD** be validated by whatever validator is wired into pre-commit or CI; files covered by an active hook **MUST** pass it. For file families that do not yet have a hook configured, authors **SHOULD** run the appropriate validator locally before committing. CI/pre-commit integration is owned by the repository's tooling configuration rather than by this guide.
 
 Validation tiers:
 
-- **MUST tier** (files whose schema validator is wired into pre-commit or CI **MUST** pass it; where the validator is not wired up, authors **SHOULD** run it locally before committing): GitHub Actions workflows (`.github/workflows/*.yml`); pre-commit configuration (`.pre-commit-config.yaml`); any YAML file whose schema is published and stable and whose consumer requires structural correctness.
-- **SHOULD tier**: linter configuration files (for example, `.yamllint.yml`) when a schema is available and a validator is convenient to run.
+- **MUST tier** (files whose validator is wired into pre-commit or CI **MUST** pass it; where the validator is not wired up, authors **SHOULD** run it locally before committing): GitHub Actions workflows (`.github/workflows/*.yml`); pre-commit configuration (`.pre-commit-config.yaml`); any YAML file whose consumer requires structural correctness.
+- **SHOULD tier**: configuration files when a validator is available and convenient to run.
 - **MAY tier**: optional or experimental configuration formats whose schema may change.
 
-Shipped validators in this repository (extend as needed for new ecosystems):
+Shipped validators in this repository:
 
-- **`yamllint`** — YAML style enforcement, configured in [`.yamllint.yml`](../../.yamllint.yml) and run through [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml) and [`.github/workflows/data-ci.yml`](../workflows/data-ci.yml).
-- **`check-yaml`** (from `pre-commit/pre-commit-hooks`) — parse-checks YAML files; runs through pre-commit and `data-ci.yml`.
-- **`actionlint`** — GitHub Actions workflow linter; runs through pre-commit and `data-ci.yml` for any workflow file under `.github/workflows/`.
-- **`check-jsonschema`** — generic JSON Schema validation for YAML and JSON files. Used today for (a) the worked-example schema (`schemas/example-config.schema.json`) and its valid example data, and (b) selected real load-bearing repository configuration files (for example, `.github/dependabot.yml`) validated against built-in vendor schemas shipped with `check-jsonschema`. See [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml) for the authoritative list of active hooks. Add file-family-scoped hooks (project-owned `--schemafile` or additional `--builtin-schema` hooks) for additional schema-backed YAML as needed.
+- **`check-yaml`** (from `pre-commit/pre-commit-hooks`) — parse-checks YAML files; runs through pre-commit. See [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml) for the authoritative list of active hooks.
 
-Additional ecosystem-specific validators (for example, `kubeval`/`kubeconform` for Kubernetes, `helm lint` for Helm charts, `ansible-lint` for Ansible) **SHOULD** be adopted **only** when the repository actually uses the ecosystem. Generic YAML guidance **MUST NOT** mandate validators for ecosystems the repository does not use.
+Additional validators (for example, `yamllint` for YAML style, `actionlint` for GitHub Actions workflows, `check-jsonschema` for schema-backed YAML, `kubeval`/`kubeconform` for Kubernetes, `helm lint` for Helm charts, `ansible-lint` for Ansible) **SHOULD** be adopted **only** when the repository actually uses the ecosystem or chooses to enforce the corresponding style. Generic YAML guidance **MUST NOT** mandate validators that the repository does not wire up.
 
 ## Security
 
@@ -307,7 +304,7 @@ A YAML change is "done" when **all** of the following are true:
 - All booleans are lowercase `true` / `false`; no `yes`/`no`/`on`/`off` as boolean values.
 - The conservative subset is respected (no anchors, aliases, merge keys, custom tags, multi-document files, or flow style except where necessary and justified).
 - Comments explain **why**, not **what**; behavior is not documented only in comments.
-- `yamllint` (configured in [`.yamllint.yml`](../../.yamllint.yml)) and `check-yaml` pass under the repository's pre-commit configuration.
-- Any schema or ecosystem validator wired into pre-commit or CI passes for the affected files (for example, `actionlint` for workflow files, `check-jsonschema` for schema-backed YAML covered by an active hook). When no such validator is wired up for the file family being changed, authors **SHOULD** run the applicable validator locally before committing.
-- Pre-commit hooks pass locally (`pre-commit run --all-files`) and in CI, including the dedicated [`.github/workflows/data-ci.yml`](../workflows/data-ci.yml) data-file workflow.
+- `check-yaml` passes under the repository's pre-commit configuration.
+- Any other validator wired into pre-commit or CI passes for the affected files. When no such validator is wired up for the file family being changed, authors **SHOULD** run the applicable validator locally before committing.
+- Pre-commit hooks pass locally (`pre-commit run --all-files`) and in CI.
 - No secrets are committed; GitHub Actions workflows declare least-privilege `permissions:`.

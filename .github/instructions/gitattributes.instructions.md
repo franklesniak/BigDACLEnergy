@@ -7,13 +7,13 @@ description: "Rules for .gitattributes entries, including line-ending pinning fo
 
 # `.gitattributes` Rules
 
-**Version:** 1.2.20260527.0
+**Version:** 1.2.20260617.0
 
 ## Metadata
 
 - **Status:** Active
 - **Owner:** Repository Maintainers
-- **Last Updated:** 2026-05-27
+- **Last Updated:** 2026-06-17
 - **Scope:** Applies to any `.gitattributes` file in repositories that adopt these instructions, independent of programming language. Governs how committed text artifacts, linter-enforced LF file families, and template-managed text formats are protected against platform-dependent checkout rewriting.
 - **Related:** [Repository Copilot Instructions](../copilot-instructions.md)
 
@@ -54,7 +54,7 @@ A blanket rule such as `* text=auto` **MUST NOT** be treated as a substitute for
 
 Any committed text file family whose repository-enforced linter or validator requires LF line endings **MUST** be pinned to LF line endings in `.gitattributes` using a pattern as specific as practical to the affected file family. The rule applies even when the file's semantic consumer parses line endings equivalently, because the linter or validator has made the working-tree newline style part of the repository contract.
 
-**Example:** This template configures `yamllint` through `.yamllint.yml`, and the default `new-lines: type: unix` rule rejects CRLF YAML files. Therefore the template pins all YAML files to LF:
+**Example:** A repository that configures `yamllint` with the default `new-lines: type: unix` rule rejects CRLF YAML files. In that case, pin all YAML files to LF:
 
 ```gitattributes
 *.yml  text eol=lf
@@ -69,7 +69,7 @@ Template repositories that ship common text file families for downstream adoptio
 
 The pattern **SHOULD** use a low-risk extension or path family that the template actually owns. Do not add a broad extension pin merely because the format is text; document why the file family is template-managed and keep binary override behavior clear.
 
-**Example:** This template pins Markdown, PowerShell, JSON, JSONC, TOML, JavaScript (`*.js`), JavaScript module (`*.mjs`), and Python file families because they are shipped as template-managed documentation, scripts, configuration, or examples and are commonly edited during downstream adoption:
+**Example:** A repository **MAY** pin Markdown and PowerShell file families because they are commonly edited as documentation and scripts during downstream adoption:
 
 ```gitattributes
 *.md    text eol=lf
@@ -77,17 +77,11 @@ The pattern **SHOULD** use a low-risk extension or path family that the template
 *.ps1   text eol=lf
 *.psd1  text eol=lf
 *.psm1  text eol=lf
-*.json  text eol=lf
-*.jsonc text eol=lf
-*.toml  text eol=lf
-*.js    text eol=lf
-*.mjs   text eol=lf
-*.py    text eol=lf
 ```
 
-## Defaults Shipped by This Template
+## Recommended Defaults for a Repo-Root `.gitattributes`
 
-This template ships a repo-root `.gitattributes` file with LF-pinning defaults for common byte-exact fixture locations, linter-enforced LF file families, and CRLF-churn prevention for template-managed text formats:
+A repository that ships a repo-root `.gitattributes` file **SHOULD** include LF-pinning defaults for common byte-exact fixture locations, linter-enforced LF file families, and CRLF-churn prevention for commonly edited text formats, for example:
 
 - `tests/**/golden/**`
 - `tests/**/goldens/**`
@@ -102,16 +96,10 @@ This template ships a repo-root `.gitattributes` file with LF-pinning defaults f
 - `*.ps1`
 - `*.psd1`
 - `*.psm1`
-- `*.json`
-- `*.jsonc`
-- `*.toml`
-- `*.js`
-- `*.mjs`
-- `*.py`
 
-The fixture paths are assumed to contain **text** fixtures. To keep the defaults safe when binary assets are committed under the same directories (for example, `.png` screenshots under `__snapshots__/`), the shipped `.gitattributes` also declassifies a curated list of common binary extensions (images, documents and archives, compiled artifacts, audio and video, fonts) using the `binary` macro so that Git does not apply line-ending conversion to them.
+The fixture paths are assumed to contain **text** fixtures. To keep the defaults safe when binary assets are committed under the same directories (for example, `.png` screenshots under `__snapshots__/`), a `.gitattributes` **SHOULD** also declassify a curated list of common binary extensions (images, documents and archives, compiled artifacts, audio and video, fonts) using the `binary` macro so that Git does not apply line-ending conversion to them.
 
-Downstream adopters **MUST** extend these entries whenever they introduce a new byte-exact fixture location that is not already covered (for example, a project-specific `expected/` directory, a `golden_files/` tree, or signed payloads under a custom path). New entries **SHOULD** follow the "as narrow as practical" guidance above. Existing template entries **SHOULD NOT** be removed unless the maintainer has confirmed that no byte-exact comparison exists in the repository that depends on those paths, no retained linter or validator requires LF for the file family, and the extension is no longer a template-managed text format whose cross-platform CRLF churn matters to adoption review.
+Adopters **MUST** extend these entries whenever they introduce a new byte-exact fixture location that is not already covered (for example, a project-specific `expected/` directory, a `golden_files/` tree, or signed payloads under a custom path). New entries **SHOULD** follow the "as narrow as practical" guidance above. Existing entries **SHOULD NOT** be removed unless the maintainer has confirmed that no byte-exact comparison exists in the repository that depends on those paths, no retained linter or validator requires LF for the file family, and the extension is no longer a text format whose cross-platform CRLF churn matters to review.
 
 ### Excluding Binary Files Under Fixture Paths
 
@@ -123,7 +111,7 @@ tests/**/snapshots/**    text eol=lf
 *.zip                    binary
 ```
 
-The shipped `.gitattributes` already declassifies a curated list of common binary extensions. Adopters **SHOULD** extend that list if they commit binary fixtures in formats not covered (for example, custom binary serialization formats, proprietary container formats, or simulator traces stored as opaque blobs). A narrower path-scoped form **MAY** be used (for example, `tests/**/fixtures/*.bin binary`) when a binary extension is project-specific and scoping it globally would be too broad.
+A `.gitattributes` that declassifies a curated list of common binary extensions **SHOULD** be extended if a project commits binary fixtures in formats not covered (for example, custom binary serialization formats, proprietary container formats, or simulator traces stored as opaque blobs). A narrower path-scoped form **MAY** be used (for example, `tests/**/fixtures/*.bin binary`) when a binary extension is project-specific and scoping it globally would be too broad.
 
 ## Interaction With Language-Specific Producer/Consumer Rules
 
@@ -133,7 +121,7 @@ The Git-layer rule defined here is necessary but not sufficient for byte-exact s
 - Tools that **compare** fixtures **SHOULD** read bytes in a mode that does not perform its own newline translation (for example, binary mode) when the comparison is byte-exact.
 - Hashing and signing tools **SHOULD** operate on raw bytes and **MUST NOT** depend on on-disk text normalization.
 
-These language-specific concerns are out of scope for this instructions file; they are addressed in the relevant language instructions (for example, `python.instructions.md`, `powershell.instructions.md`). The Git-layer rule and the producer/consumer rules are complementary: each alone is insufficient, and both are needed for stable byte-exact artifacts across platforms.
+These language-specific concerns are out of scope for this instructions file; they are addressed in the relevant language instructions (for example, `powershell.instructions.md`). The Git-layer rule and the producer/consumer rules are complementary: each alone is insufficient, and both are needed for stable byte-exact artifacts across platforms.
 
 ## Rationale
 
@@ -141,6 +129,6 @@ Git's end-of-line handling is configurable per host. On Windows, the common defa
 
 Per-path `eol=lf` pinning in `.gitattributes` is the durable Git-layer fix because it overrides `core.autocrlf` and any other host-level configuration for the specified paths. Producer-side normalization alone is insufficient: even if a generator writes LF bytes and a comparator reads in binary mode, a Windows checkout with `core.autocrlf=true` will still present CRLF bytes on disk, and any tool that reads the on-disk file (including hashing pipelines that are not explicitly reading in binary mode) will observe the rewritten bytes. Pinning the path to `eol=lf` is what guarantees that the bytes written to the working tree match the bytes stored in the repository, independent of host configuration.
 
-The same Git-layer guarantee is required when a repository-enforced linter or validator makes LF line endings part of the contract. YAML in this template is the worked example: `yamllint` rejects CRLF YAML through the `new-lines` rule, so leaving YAML subject to host checkout conversion makes standard validation fail on Windows even though the parsed YAML data is unchanged. Pinning `*.yml` and `*.yaml` to `eol=lf` aligns the working tree with the configured validation contract.
+The same Git-layer guarantee is required when a repository-enforced linter or validator makes LF line endings part of the contract. YAML is the worked example: when a repository configures `yamllint`, its `new-lines` rule rejects CRLF YAML, so leaving YAML subject to host checkout conversion makes that validation fail on Windows even though the parsed YAML data is unchanged. Pinning `*.yml` and `*.yaml` to `eol=lf` aligns the working tree with the configured validation contract.
 
-Template-managed text formats have a third, weaker but still durable rationale: CRLF-churn prevention. Markdown, Cursor MDC, PowerShell, JSON, JSONC, TOML, JavaScript (`*.js`), JavaScript module (`*.mjs`), and Python files are frequently touched during downstream adoption and stack pruning. Allowing host-specific checkout conversion for those file families creates large non-semantic diffs and can obscure the intended template change. LF pinning keeps adoption review focused on content while leaving binary safety to the explicit `binary` overrides.
+Commonly edited text formats have a third, weaker but still durable rationale: CRLF-churn prevention. Markdown, Cursor MDC, and PowerShell files are frequently touched during development and review. Allowing host-specific checkout conversion for those file families creates large non-semantic diffs and can obscure the intended change. LF pinning keeps review focused on content while leaving binary safety to the explicit `binary` overrides.
