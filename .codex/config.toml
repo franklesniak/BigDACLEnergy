@@ -1,3 +1,6 @@
 [features]
 goals = true
 multi_agent = true
+
+[plugins."github@openai-curated"]
+enabled = true
