@@ -860,19 +860,638 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
 
 ## 9. Data Processing and Transformation Pipeline
 
-<!-- TODO: To be completed in a future work effort -->
+### Step 1: Connection and Bootstrap
+
+- Establish connection via managed .NET APIs: by default, `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()` and `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()` use the Windows DC locator (AD sites and services) for site-aware DC discovery. When `-Server` is specified, use `New-Object -TypeName System.DirectoryServices.ActiveDirectory.DirectoryContext -ArgumentList ([System.DirectoryServices.ActiveDirectory.DirectoryContextType]::DirectoryServer), $serverName` with `[System.DirectoryServices.ActiveDirectory.Domain]::GetDomain($context)` and `[System.DirectoryServices.ActiveDirectory.Forest]::GetForest($context)` to route through the specified DC.
+- Read RootDSE for naming contexts and schema/configuration DNs
+- **Domain enumeration and SID collection**: Use `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Domains` (or `[System.DirectoryServices.ActiveDirectory.Forest]::GetForest($context).Domains` with `-Server`) to enumerate all domains in the forest — this is the authoritative runtime source for the known-domain-NC set (see Section 1, "Known Domain NC Definition"). For each `Domain` object, obtain a `DirectoryEntry` via `$entry = $domain.GetDirectoryEntry()`. The returned `DirectoryEntry` implements `IDisposable` and holds unmanaged ADSI handles, so it MUST be disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the property reads on `$entry` **and** the call to `$entry.Dispose()` MUST be executed inside a wrapper function following one of the two patterns defined in Section 1 ("Error handling via function wrappers" — `_SimpleFunctionTemplate.ps1` or `_RobustCloudServiceFunctionTemplate.ps1`). Within the wrapper function, the `trap { }` statement suppresses terminating errors, and `$entry.Dispose()` is placed after the property accesses so that `.Dispose()` is reached during normal control flow. After disposal, the wrapper MUST invoke `Get-ReferenceToLastError` / `Test-ErrorOccurred` to detect whether any of the property reads or the `GetDirectoryEntry()` call failed — if an error is detected, the failure MUST be reported and MUST NOT be silently swallowed.
+
+  Read `Properties["objectSid"]` — note that `Properties["objectSid"]` returns a `PropertyValueCollection`, so the value must be indexed and cast. The following code executes within the wrapper function scope described above:
+
+  ```powershell
+  $sidBytes = [byte[]]$entry.Properties["objectSid"][0]
+  $domainSid = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $sidBytes, 0
+  ```
+
+  The domain's DN can be read from `$entry.Properties["distinguishedName"][0]` within the same wrapper function scope, followed by `$entry.Dispose()`. This collects SIDs for **all** known domain NCs — not just the current domain — which is required for deleted-trustee detection (Section 7) and per-domain SDDL alias expansion (Step 4). The `Domain.Name` property provides the DNS name.
+
+- **NetBIOS name mapping**: Since `Domain` objects do not expose NetBIOS names directly, query `CN=Partitions,<configurationNamingContext>` via `DirectorySearcher` with filter `(&(objectClass=crossRef)(nCName=*)(nETBIOSName=*))` to retrieve the `nETBIOSName` for each domain NC, and map them to the `Forest.Domains` set collected above by matching each `crossRef` object's `nCName` to the corresponding domain's distinguished name. This reconciles the `crossRef`-based definition from Section 1 with the managed API enumeration — both should produce the same set of domain NCs.
+
+- **Progress output**: Report connection status using `[System.Console]::Error.WriteLine()`:
+
+  ```powershell
+  [System.Console]::Error.WriteLine(
+      [string]::Format("[*] Connected to {0}", $targetServer)
+  )
+  ```
+
+  where `$targetServer` is the `-Server` value if specified, or the domain controller hostname obtained via `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().FindDomainController().Name` when using the default DC locator path.
+
+> **Progress and diagnostic output — stream selection:** All progress and diagnostic messages MUST go to stderr, not stdout, to ensure clean stdout separation for CSV data. The following approaches are available in PowerShell:
+>
+> | Approach | Availability | Behavior |
+> | --- | --- | --- |
+> | `[System.Console]::Error.WriteLine()` | All PS versions | Writes to stderr in all versions; most consistent with the original specification's `Console.Error` behavior |
+> | `Write-Warning` | PS 2.0+ | Writes to the warning stream (stream 3 in PS 3.0+); visible by default but suppressible via `$WarningPreference` |
+> | `Write-Host` | All PS versions | In PS 5.0+ writes to the information stream (stream 6); in PS 1.0–4.0 writes directly to the host and cannot be redirected |
+> | `Write-Verbose` / `Write-Debug` | PS 2.0+ | Available for optional verbosity levels; require `-Verbose` / `-Debug` to display |
+>
+> **Recommendation:** Use `[System.Console]::Error.WriteLine()` for all progress and diagnostic output (e.g., `[*]` status lines, periodic scan progress). This writes to stderr in all PowerShell versions, maintaining clean stdout for CSV data — matching the original specification's design where CSV goes to stdout and diagnostics go to stderr. `Write-Verbose` and `Write-Debug` (PS 2.0+) are appropriate for optional verbosity levels but are not suitable for default progress output because they are suppressed by default.
+
+### Step 2: Schema Loading
+
+- Enumerate all schema classes via `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetCurrentSchema().FindAllClasses()` (or `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetSchema($context).FindAllClasses()` with `-Server`) for class GUIDs (`SchemaGuid`) and `DefaultObjectSecurityDescriptor` SDDL strings
+- Enumerate all schema attributes via `[System.DirectoryServices.ActiveDirectory.ActiveDirectorySchema]::GetCurrentSchema().FindAllProperties()` (or `.GetSchema($context).FindAllProperties()` with `-Server`) for attribute GUIDs (`SchemaGuid`)
+- Query `controlAccessRight` objects via `DirectorySearcher` on the Configuration NC for property sets (`validAccesses=48`), validated writes (`validAccesses=8`), and control access rights (`validAccesses=256`)
+- Report progress:
+
+  ```powershell
+  [System.Console]::Error.WriteLine(
+      [string]::Format("[*] Schema loaded: {0} classes, {1} attributes, {2} extended rights",
+          $classCount, $attrCount, $rightCount)
+  )
+  ```
+
+### Step 3: Delegation and Template Loading
+
+- **Load built-in delegation definitions.** In the archived C# specification, built-in definitions were loaded from embedded assembly resources via `Assembly.GetManifestResourceStream()`. Because this tool ships as a plain PowerShell script rather than a compiled .NET assembly, it has no assembly of its own in which to embed manifest resources — there is no script-local equivalent to C# embedded resources. (PowerShell can still call `Assembly.GetManifestResourceStream()` against *other* compiled assemblies that carry manifest resources; the limitation is specific to the script's own deployment model, not the .NET API.) Instead, the tool MUST use one of the following approaches to load built-in delegation definitions:
+
+  1. **Separate XML file distributed with the script (recommended):** Store built-in definitions in an XML file (e.g., `delegations-builtin.xml`) alongside the script. Load using:
+
+      ```powershell
+      $xml = New-Object -TypeName System.Xml.XmlDocument
+      $xml.Load($builtinXmlPath)
+      ```
+
+      This approach provides the best maintainability: delegation definitions can be reviewed, edited, and version-controlled independently of the script logic.
+
+  2. **Inline here-string in the script itself (fallback for single-file deployment):** Embed the XML content as a string literal in the script and parse it directly:
+
+      ```powershell
+      $xmlString = @"
+      <adeleg>
+        <delegation name="..." builtin="true" trustee="...">
+          <location>...</location>
+          <ace type="Allow" rights="..." objectType="..." />
+        </delegation>
+      </adeleg>
+      "@
+      $xml = New-Object -TypeName System.Xml.XmlDocument
+      $xml.LoadXml($xmlString)
+      ```
+
+      > **Here-string terminator:** In PowerShell, the closing `"@` of a here-string MUST appear at the very beginning of the line (column 1) with no leading whitespace. The indentation shown above is for display purposes within this specification only. In actual implementation, the `"@` line must be unindented.
+
+      This enables single-file deployment without external dependencies but makes editing delegation definitions harder.
+
+  3. **`DATA` section (PS 2.0+):** PowerShell 2.0 and later support `DATA` sections for embedding static data. However, `DATA` sections are not available in PowerShell 1.0 and provide limited benefit over here-strings for XML content. This approach is NOT RECOMMENDED for cross-version compatibility.
+
+  > **Recommendation:** Use approach (1) — a separate XML file — as the primary mechanism. This aligns with the tool's existing support for user-provided XML files (`-Delegations`, `-Templates`) and enables the same XSD validation path for both built-in and user-provided definitions. Approach (2) may be used as a fallback when single-file distribution is required.
+
+- **Reading XML file content across PowerShell versions:** The `[System.Xml.XmlDocument].Load($path)` method works in all PowerShell versions and is the recommended approach for loading XML from files. For scenarios where XML content must be read as a string first (e.g., for preprocessing), use version-conditional logic:
+
+  > **Version note — `Get-Content -Raw` (PS 3.0+):** `Get-Content -Raw` reads an entire file as a single string. On PowerShell 1.0/2.0, use `[System.IO.File]::ReadAllText($path)` instead:
+  >
+  > ```powershell
+  > $versionPS = Get-PSVersion
+  > if ($versionPS.Major -ge 3) {
+  >     $xmlContent = Get-Content -Path $xmlPath -Raw
+  > } else {
+  >     $xmlContent = [System.IO.File]::ReadAllText($xmlPath)
+  > }
+  > ```
+
+- Optionally load user-provided templates (`-Templates`) and delegations (`-Delegations`) from external XML files, validated against XSD schema (see Section 11 for the validation mechanism)
+- For each delegation, derive expected ACEs by resolving trustees and locations, and index them by SID → Location
+
+### Step 4: Schema ACE Analysis
+
+- For each `ActiveDirectorySchemaClass` with a `DefaultObjectSecurityDescriptor`:
+  - Parse the SDDL string **once per known domain NC** (all domain NCs collected in Step 1). SDDL domain-relative aliases (e.g., `DA` for Domain Admins, `DU` for Domain Users, `PA` for Group Policy Creator Owners) resolve to different SIDs in each domain. Since `New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $sddlString` resolves aliases using only the calling process's security context (i.e., the current domain), the tool must manually substitute SDDL abbreviations with the appropriate domain's SIDs before parsing. Specifically, for each domain, replace per-domain aliases like `DA` → `S-1-5-21-<domain SID>-512`, `DU` → `S-1-5-21-<domain SID>-513`, etc. Forest-root-only aliases — `EA` (Enterprise Admins, RID 519) and `SA` (Schema Admins, RID 518) — must always resolve to the **forest root domain** SID regardless of which domain is being processed. Parse the substituted string via `New-Object -TypeName System.Security.AccessControl.RawSecurityDescriptor -ArgumentList $expandedSddl`. See Section 4 ("SDDL Parsing for Schema Defaults") for the complete alias substitution table.
+  - Filter the DACL ACEs through the interest check logic
+  - Store remaining ACEs as orphan ACEs in the result set
+
+### Step 5: Explicit ACE Analysis
+
+- For each naming context, perform a subtree search via `DirectorySearcher` with `Filter = "(objectClass=*)"`, `SearchScope = [System.DirectoryServices.SearchScope]::Subtree`, `PageSize = 1000`, `SecurityMasks = [System.DirectoryServices.SecurityMasks]::Owner -bor [System.DirectoryServices.SecurityMasks]::Dacl`
+
+- **Critical: `SearchResultCollection` disposal and error detection.** `SearchResultCollection` returned by `$searcher.FindAll()` implements `IDisposable`. It MUST be disposed (via explicit `.Dispose()`) to release unmanaged LDAP result handles and prevent memory leaks during long scans. Since `try/finally` MUST NOT be used (see Section 1), the `FindAll()` call and its result iteration MUST be wrapped in a function following one of the two wrapper patterns defined in Section 1 ("Error handling via function wrappers" — `_SimpleFunctionTemplate.ps1` or `_RobustCloudServiceFunctionTemplate.ps1`). Within the wrapper function, the `trap { }` statement suppresses terminating errors, and `$results.Dispose()` is placed after the iteration loop so that `.Dispose()` is reached during normal control flow. After disposal, the wrapper MUST invoke `Get-ReferenceToLastError` / `Test-ErrorOccurred` to detect whether `FindAll()` or result iteration failed; if an error is detected, the scan for that naming context MUST be treated as failed and MUST NOT silently continue with partial results. Additionally, `DirectorySearcher` and its `SearchRoot` `DirectoryEntry` both implement `IDisposable` and MUST also be disposed when no longer needed to avoid leaking ADSI/LDAP handles across multiple naming context iterations.
+
+- For each object:
+  - Parse the security descriptor via `ActiveDirectorySecurity` (see Section 4, "Security Descriptor Access")
+  - Compute expected default ACEs from the schema class's `DefaultObjectSecurityDescriptor`
+  - Filter each DACL ACE through the interest check, which excludes: inherited ACEs, read-only ACEs, schema default ACEs, AdminSDHolder ACEs, ignored trustee ACEs, and special-case ACEs
+  - Record: owner, DACL protection status (via `AreAccessRulesProtected`), ACL canonicality, and orphan ACEs
+
+- Report progress periodically using carriage-return-based overwrite:
+
+  ```powershell
+  [System.Console]::Error.Write(
+      [string]::Format("`r[{0}] {1} objects processed...", $ncDN, $count)
+  )
+  ```
+
+  > **Note:** The backtick-r (`` `r ``) is PowerShell's escape sequence for the carriage return character (`\r` in C#). `[System.Console]::Error.Write()` (not `WriteLine`) is used to overwrite the current line in-place, providing a continuously updating progress indicator without scrolling.
+
+### Step 6: Post-Processing
+
+1. **Memory optimization**: Remove records with no findings (no orphan ACEs, no owner issues, no warnings), but retain parent container records needed for CREATE_CHILD analysis.
+2. **Deleted trustee detection**: For each unresolvable orphan ACE trustee across all naming contexts, check `$trusteeSid.AccountDomainSid` — if it matches **any** known domain SID (collected from all known domain NCs), move the ACE to the deleted trustee list. See Section 7 ("Deleted Trustee Detection") for the full algorithm.
+3. **KDS root key handling**: Suppress DACL protection warnings for KDS root key objects in the Configuration partition.
+4. **Owner analysis via CREATE_CHILD**: For each object with a non-ignored owner, walk up the container hierarchy checking if the owner has `CreateChild` permissions — if so, suppress the owner finding (the owner created the object). Group membership for this check uses the `tokenGroups` constructed attribute via `$entry.RefreshCache(@("tokenGroups"))`, which resolves transitive/nested group memberships. The `DirectoryEntry` used for the `RefreshCache` call MUST be disposed after use (see the resource cleanup pattern in Section 1).
+5. **Parent object ACE suppression**: Remove ACEs whose trustees are parent objects (e.g., computers controlling their own BitLocker recovery objects).
+
+### Step 7: Delegation Matching
+
+1. For each expected delegation (built-in + user-defined), create or update a result entry, initially marking all expected ACEs as "missing".
+2. For each location, match orphan ACEs against expected delegation ACEs using the ACE comparison function:
+   - If a match is found, the ACE moves from orphan ACEs to found ACEs for that delegation
+   - The corresponding expected ACE is removed from the missing list
+   - One ACE can match multiple delegations
+3. For built-in delegations, clear all missing ACEs (do not flag missing built-in ACEs).
+
+### Step 8: CSV Generation
+
+- Iterate over all results, sorted deterministically (see Section 10)
+- For each entry, write CSV records for: errors/warnings, owner, DACL protection, non-canonical ACL, deleted trustees, orphan ACEs, and matched delegations
+- Report final summary to stderr (and log file if `-Log` is active) using the format defined in Section 13.3 — `[i]` prefix, object/ACE/SD counts, and elapsed time formatted as `hh:mm:ss` (or `mm:ss` for scans under one hour):
+
+  ```powershell
+  [System.Console]::Error.WriteLine(
+      [string]::Format("[i] Scan complete: {0} objects, {1} ACEs, {2} SDs in {3}",
+          $objectCount, $aceCount, $sdCount, $elapsed)
+  )
+  ```
 
 ---
 
 ## 10. CSV Export Structure
 
-<!-- TODO: To be completed in a future work effort -->
+### CSV Output Destination
+
+The `-Csv <path>` command-line argument selects the destination for CSV output. If the path is `-`, output goes to stdout. Otherwise, a file is created (or truncated if it exists). If neither `-Csv` nor `-RiskCsv` (see Section 20.2) is specified, the tool writes CSV to stdout by default (equivalent to `-Csv -`). This ensures the tool always produces usable output, even when run without explicit output arguments.
+
+### CSV Header Row
+
+The CSV output includes a mandatory header row as the first line:
+
+```text
+Resource,Trustee,Trustee type,Category,Details,Risk Level,Current User Can Exploit
+```
+
+### CSV Schema
+
+The CSV output has **7 columns**:
+
+| Column | Name | Description |
+| --- | --- | --- |
+| 1 | **Resource** | The location where the delegation or finding applies. Either a DN (e.g., `OU=Users,DC=example,DC=com`), a schema reference (e.g., `Schema: default security descriptor of class 'user'`), or `Global` for non-location-specific findings |
+| 2 | **Trustee** | The resolved name of the security principal (DN or `DOMAIN\Username`), or the raw SID string if unresolvable, or `Global` for non-trustee-specific `Warning` rows |
+| 3 | **Trustee type** | One of: `User`, `Group`, `Computer`, `External`, or empty for non-trustee-specific rows (e.g., `Warning` rows where `Trustee` is `Global`) |
+| 4 | **Category** | Classification of the finding (see below) |
+| 5 | **Details** | Human-readable description of the permission or finding |
+| 6 | **Risk Level** | A risk classification for the row. One of: `Critical`, `High`, `Medium`, `Informational`, or empty (blank) for rows that do not match any risk rule. See Section 18 for the classification matrix. |
+| 7 | **Current User Can Exploit** | `Yes` if the ACE trustee SID matches the current user's SID or any of the current user's transitive group SIDs (see Section 19); empty (blank) otherwise. |
+
+### Category Values
+
+| Category | Meaning |
+| --- | --- |
+| `Owner` | The trustee owns the object, granting implicit full control |
+| `Warning` | A structural issue (unreadable SD, blocked DACL inheritance, non-canonical ACL), a deleted trustee finding, or an AdminSDHolder anomaly |
+| `Allow ACE` | An explicit allow ACE not explained by any known delegation |
+| `Deny ACE` | An explicit deny ACE not explained by any known delegation |
+| `Built-in` | A delegation matching a built-in definition (only shown with `-ShowBuiltin`) |
+| `Delegation` | A delegation matching a user-defined definition |
+| `Expected allow ACE found` | An individual allow ACE that was expected and found in place |
+| `Expected deny ACE found` | An individual deny ACE that was expected and found in place |
+| `Expected allow ACE missing` | An individual allow ACE that was expected but not found |
+| `Expected deny ACE missing` | An individual deny ACE that was expected but not found |
+
+### Deterministic Row Ordering
+
+CSV rows are sorted deterministically using the following order:
+
+1. **Primary sort**: Resource column, using an **ordinal (culture-invariant), case-insensitive** string comparison — equivalent to `[System.StringComparer]::OrdinalIgnoreCase`, NOT PowerShell's culture-aware default — so the ordering is byte-for-byte identical across machines and locales (the Resource value includes DNs like `OU=Users,DC=example,DC=com`, schema references like `Schema: default security descriptor of class 'user'`, and `Global` for non-location-specific findings)
+2. **Secondary sort**: Category column, by priority order: `Warning` → `Owner` → `Deny ACE` → `Allow ACE` → `Built-in` → `Delegation` → `Expected deny ACE found` → `Expected allow ACE found` → `Expected deny ACE missing` → `Expected allow ACE missing`
+3. **Tertiary sort**: Trustee column, using the same **ordinal (culture-invariant), case-insensitive** comparison as the primary sort
+
+This deterministic ordering enables diff-based change tracking between runs.
+
+> **Version note — deterministic sorting implementation:** Determinism requires that every string comparison in the sort be **ordinal (culture-invariant)**, not culture-aware. PowerShell's `Sort-Object` — and the default string comparison operators (`-lt`, `-gt`, `-eq`) — use **culture-aware, case-insensitive** comparison by default, so their ordering varies by machine locale and is therefore NOT deterministic on its own. `Sort-Object` does not accept a custom comparer on the older PowerShell versions this tool targets, so it MUST NOT be relied upon to satisfy the ordering above. Instead, the Resource and Trustee comparisons MUST use an ordinal, case-insensitive comparer (`[System.StringComparer]::OrdinalIgnoreCase`, available on all supported PowerShell versions via .NET 2.0+). The natural cross-version expression of the multi-key sort is `[System.Linq.Enumerable]::OrderBy(...)` / `.ThenBy(...)` passing `[System.StringComparer]::OrdinalIgnoreCase` on PowerShell 4.0+ (.NET 4.5+); the `OrderBy`/`ThenBy` chain is a documented **stable** sort and composes into the full primary → secondary → tertiary precedence. On PowerShell 1.0–3.0, use `[System.Array]::Sort($items, $comparer)` with a **single composite `IComparer`** that compares all three keys in one pass — Resource (`OrdinalIgnoreCase`), then Category priority, then Trustee (`OrdinalIgnoreCase`) — returning the first non-zero comparison result. A multi-pass approach that sorts by one key at a time and relies on sort stability to preserve earlier passes **MUST NOT** be used here: `[System.Array]::Sort` is **not** a stable sort (it uses an unstable introspective sort), so prior-pass ordering would not be preserved and the specified primary/secondary/tertiary ordering could be violated. The single composite comparer establishes the complete total order in one pass and does not depend on stability. The category priority ordering requires the comparer to map category strings to their numeric priority (e.g., `Warning` → 0, `Owner` → 1, `Deny ACE` → 2, etc.); because that key is numeric, it is already culture-invariant.
+
+### Record Generation Logic
+
+For each location/result pair in the scan results, the following record types are generated in this per-location output sequence:
+
+1. **Per-location processing errors** (if `-ShowWarningUnreadable` is enabled; see Section 13 for CLI flag definitions): One `Warning` record with the error message. This covers any error entry in the results, including unreadable security descriptors, missing/unreadable `objectClass` attributes, and unparseable schema `defaultSecurityDescriptor` SDDL strings. The `Trustee` column is set to `Global` and the `Trustee type` column is empty.
+2. **Owner**: One `Owner` record if the object's owner is not in the ignored trustee set and was not filtered by CREATE_CHILD analysis.
+3. **DACL protection**: One `Warning` record if `AreAccessRulesProtected` is `$true` and the object is not in an excluded category. The `Trustee` column is set to `Global` and the `Trustee type` column is empty.
+4. **Non-canonical ACL**: One `Warning` record if the ACL is not in canonical order. The offending ACE is described. The `Trustee` column is set to `Global` and the `Trustee type` column is empty.
+5. **Deleted trustees**: One `Warning` record per ACE whose trustee no longer exists.
+6. **AdminSDHolder anomalies**: One `Warning` record per AdminSDHolder-related anomaly detected for the location.
+7. **Orphan ACEs**: One `Allow ACE` or `Deny ACE` record per unmatched ACE, with access rights described.
+8. **Delegations**: For each matched delegation (built-in only if `-ShowBuiltin`):
+   - One `Built-in` or `Delegation` record with the delegation description
+   - One `Expected allow/deny ACE found` record per matched ACE, prefixed with "In delegation: "
+   - One `Expected allow/deny ACE missing` record per unmatched expected ACE, prefixed with "In delegation: "
+
+### Formatting and Encoding
+
+- **Encoding**: UTF-8 without BOM. This MUST be specified explicitly because PowerShell's default encoding varies by version and is NOT UTF-8:
+
+  | PowerShell Version | `Out-File` / `Set-Content` Default | Notes |
+  | --- | --- | --- |
+  | PS 1.0–5.1 | System locale encoding or UTF-16LE | NOT suitable for cross-platform CSV |
+  | PS 7.x | UTF-8 (no BOM) | `Set-Content -Encoding UTF8NoBOM` is available |
+
+  The `StreamWriter` approach described below is mandatory for consistent UTF-8 (no BOM) output across all supported PowerShell versions.
+
+- **UTF-8 without BOM encoding object**:
+
+  ```powershell
+  $utf8NoBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+  ```
+
+- **File output** (when `-Csv` specifies a file path):
+
+  ```powershell
+  $stream = New-Object -TypeName System.IO.FileStream -ArgumentList $csvPath,
+      ([System.IO.FileMode]::Create),
+      ([System.IO.FileAccess]::Write),
+      ([System.IO.FileShare]::Read)
+  $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stream, $utf8NoBom
+  # Force RFC 4180 CRLF record terminators on every WriteLine() regardless of host
+  # OS. StreamWriter.NewLine defaults to the platform terminator, which is LF on
+  # PowerShell 7+ running on Linux/macOS; without this the output would not be CRLF.
+  $writer.NewLine = "`r`n"
+  ```
+
+  The `FileStream` and `StreamWriter` MUST be disposed after all CSV rows are written, **and** write/flush/close failures MUST be detected — not silently swallowed — so a partial or truncated CSV is reported rather than mistaken for a successful export. Since `try/finally` MUST NOT be used (see Section 1), wrap the writes and disposal in a function following the same `trap`-based pattern **with error detection** (`Get-ReferenceToLastError` / `Test-ErrorOccurred`) that Section 1 requires for error-prone operations. The empty `trap { }` ensures `.Close()` is reached even if a `WriteLine()` throws; `StreamWriter.Close()` flushes buffered output and disposes the underlying stream — omitting this risks truncating the final bytes:
+
+  ```powershell
+  # trap { } ensures .Close() is reached even if a WriteLine() or the final
+  # flush throws, allowing execution to continue to cleanup and detection.
+  trap { }
+
+  # Capture the error baseline before the error-prone write/close operations.
+  $refLastKnownError = Get-ReferenceToLastError
+
+  $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+  $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+
+  # Error-prone operations: each WriteLine() and the final Close() can fail
+  # (disk full, quota exceeded, permission loss, broken pipe). Close() also
+  # flushes buffered output, so a flush failure surfaces here.
+  # ... write CSV rows via $writer.WriteLine(...) ...
+  if ($null -ne $writer) {
+      $writer.Close()
+  }
+
+  # Restore error preference
+  $global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+
+  # Fallback: if $writer.Close() threw before disposing the underlying stream,
+  # close the stream directly so the file handle is not leaked. Closing an
+  # already-closed stream is a safe no-op.
+  if ($null -ne $stream) {
+      $stream.Close()
+  }
+
+  # Detect whether any write or close/flush failed. If so, the CSV is
+  # potentially partial/truncated: the failure MUST be reported and the
+  # incomplete output MUST NOT be treated as a successful export (e.g., remove
+  # the incomplete file and surface the error to the caller).
+  $refNewestCurrentError = Get-ReferenceToLastError
+  if (Test-ErrorOccurred $refLastKnownError $refNewestCurrentError) {
+      # Report the write/close failure and treat the CSV export as failed.
+  }
+  ```
+
+- **Stdout output** (when `-Csv -` or default): Wrap `[System.Console]::OpenStandardOutput()` in a `StreamWriter`:
+
+  ```powershell
+  $stdoutStream = [System.Console]::OpenStandardOutput()
+  $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stdoutStream, $utf8NoBom
+  # Force RFC 4180 CRLF record terminators (see the file-output example above);
+  # StreamWriter.NewLine is LF by default on PowerShell 7+ on non-Windows hosts.
+  $writer.NewLine = "`r`n"
+  ```
+
+  **Do NOT use `[System.Console]::Out` directly** for CSV output, as `[System.Console]::OutputEncoding` defaults to the system's OEM code page on Windows. The `StreamWriter` must be disposed (or at minimum flushed) after all CSV rows are written — `StreamWriter` buffers output internally, so omitting `.Flush()` / `.Close()` risks truncating the final bytes. Apply the **same `trap`-based wrapper *with* `Get-ReferenceToLastError` / `Test-ErrorOccurred` error detection** shown in the file-output example above so that a failed write, flush, or close (for example, a broken pipe when stdout is piped to a full disk) is detected and reported rather than producing a silently truncated stream.
+
+  > **Important:** Do NOT use `Out-File`, `Set-Content`, or `Export-Csv` for CSV output. `Out-File` and `Set-Content` in PS 1.0–5.1 default to system locale encoding or UTF-16LE, NOT UTF-8. `Export-Csv` is NOT suitable because: (1) its output format varies by PowerShell version, (2) it adds `#TYPE` information headers by default (suppressible via `-NoTypeInformation`, which is available in all PS versions including PS 1.0), and (3) it does not guarantee RFC 4180 compliance with CRLF line endings across all PS versions. The `StreamWriter` approach is the only reliable cross-version method for producing consistent UTF-8 (no BOM) CSV output.
+
+- **RFC 4180 quoting rules**: CSV field quoting MUST be implemented manually. Fields containing commas, double-quotes, or newlines are enclosed in double-quotes. Embedded double-quotes are escaped as `""`. The line terminator is CRLF (`"`r`n"` in PowerShell). A minimal quoting function:
+
+  ```powershell
+  # Quotes a single CSV field value per RFC 4180.
+  # Returns the field with appropriate quoting applied.
+  function ConvertTo-CsvField {
+      param (
+          $Value
+      )
+
+      if ($null -eq $Value) {
+          $text = ""
+      } else {
+          $text = [string]$Value
+      }
+
+      # Escape embedded double-quotes by doubling them
+      $text = $text -replace '"', '""'
+
+      # Always quote the field for consistency and safety
+      return ('"' + $text + '"')
+  }
+  ```
+
+  > **Note:** The function above unconditionally quotes all fields. While RFC 4180 only requires quoting for fields that contain commas, double-quotes, or CRLF, unconditional quoting is safe, simpler, and avoids edge-case bugs. This approach is consistent across all PowerShell versions.
+
+  Row assembly joins quoted fields with the delimiter and writes via `$writer.WriteLine()`:
+
+  ```powershell
+  $fields = @()
+  $fields += (ConvertTo-CsvField $resource)
+  $fields += (ConvertTo-CsvField $trustee)
+  # ... remaining fields ...
+  $writer.WriteLine([string]::Join(",", $fields))
+  ```
+
+  > **Version note — `[PSCustomObject]` (Tier 2 / PS 3.0+):** When building structured result objects for sorting before CSV output, use `[PSCustomObject]@{...}` on PS 3.0+. On PS 1.0/2.0, use `New-Object -TypeName PSObject` with `Add-Member`:
+  >
+  > ```powershell
+  > $record = New-Object -TypeName PSObject
+  > $record | Add-Member -MemberType NoteProperty -Name "Resource" -Value $resource
+  > $record | Add-Member -MemberType NoteProperty -Name "Trustee" -Value $trustee
+  > # ... remaining properties ...
+  > ```
+
+### DN String Encoding
+
+Distinguished Names in Active Directory can contain special characters (commas, plus signs, semicolons, angle brackets, equals signs, hash marks, backslashes). These characters appear as-is in the DN string within the CSV field. The RFC 4180 quoting rules handle the CSV-level escaping (DNs containing commas will be enclosed in double-quotes by the `ConvertTo-CsvField` function).
+
+### Stdout and Stderr Separation
+
+When `-Csv -` is used (or by default), CSV data goes to stdout via the `StreamWriter` wrapping `[System.Console]::OpenStandardOutput()`. All diagnostic and progress messages go to stderr via `[System.Console]::Error.WriteLine()` (see the progress output guidance in Section 9, Step 1). This ensures clean separation when using pipe redirection:
+
+```text
+powershell -File BigDACLEnergy.ps1 > output.csv 2> progress.log
+```
 
 ---
 
 ## 11. Delegation and Template System
 
-<!-- TODO: To be completed in a future work effort -->
+### Delegation and Template Format
+
+Delegation and template definitions use **XML format** (not JSON), taking advantage of the `System.Xml` namespace available in .NET Framework 2.0 and all later versions.
+
+### XML Parsing
+
+In PowerShell, XML parsing uses the `System.Xml.XmlDocument` class with XPath-based navigation, which is more idiomatic than the `XmlSerializer` deserialization approach used in C#. The following approaches are available:
+
+- **DOM-based access (recommended):** Create an `XmlDocument` explicitly and load from a file path or stream:
+
+  ```powershell
+  $xml = New-Object -TypeName System.Xml.XmlDocument
+  $xml.Load($xmlPath)
+  ```
+
+  This approach works in all PowerShell versions (1.0+) and provides full XPath query support via `$xml.SelectNodes()` and `$xml.SelectSingleNode()`.
+
+- **`[xml]` type accelerator (PS 2.0+):** Parse XML content from a string:
+
+  ```powershell
+  $xmlContent = [System.IO.File]::ReadAllText($xmlPath)
+  $xml = [xml]$xmlContent
+  ```
+
+  The `[xml]` type accelerator is a shorthand for `[System.Xml.XmlDocument]` and is available in PowerShell 2.0 and later. On PowerShell 1.0, use the explicit `New-Object` approach above.
+
+  > **Version note — `Get-Content -Raw` (PS 3.0+):** When reading XML content as a string, `Get-Content -Raw` is available on PS 3.0+ to read the entire file in one operation. On PS 1.0/2.0, use `[System.IO.File]::ReadAllText($path)` instead.
+
+- **XPath navigation:** After loading, delegation and template elements are accessed via XPath queries rather than deserialization:
+
+  ```powershell
+  $delegations = $xml.SelectNodes("//delegation")
+  foreach ($delegation in $delegations) {
+      $name = $delegation.GetAttribute("name")
+      $builtin = $delegation.GetAttribute("builtin")
+      $trustee = $delegation.GetAttribute("trustee")
+
+      $locations = $delegation.SelectNodes("location")
+      $aces = $delegation.SelectNodes("ace")
+      # ... process each delegation ...
+  }
+  ```
+
+  This XPath-based approach replaces the `XmlSerializer` deserialization pattern from the C# specification and is the recommended approach for PowerShell.
+
+### XSD Schema Validation
+
+All XML files loaded by the tool — whether they contain delegation definitions, template definitions, risk classification configuration, or any combination thereof — are validated against the same `<adeleg>` XSD schema at load time. This includes standalone risk-configuration files that contain only `<unsafeTrustees>`, `<tier0Resources>`, or `<dangerousDelegations>` elements. Validation is performed by creating an `XmlReader` with validation settings and reading the document through it. The load-and-validate operation MUST be wrapped in a function following one of the two wrapper patterns defined in Section 1 ("Error handling via function wrappers" — `_SimpleFunctionTemplate.ps1` or `_RobustCloudServiceFunctionTemplate.ps1`) to both ensure resource cleanup AND detect validation failures. The following code illustrates the key elements as they would appear inside the wrapper function:
+
+```powershell
+# The wrapper function's trap { } at function scope catches any terminating
+# error from Schemas.Add(), XmlReader.Create(), or $doc.Load(), allowing
+# execution to continue to reader cleanup and error detection.
+trap { }
+
+# Reliable setup: constructing the settings object, selecting the validation
+# type, and registering the event handler do not touch the filesystem and are
+# not error-prone. Loading the XSD itself (Schemas.Add) IS error-prone and is
+# deferred to the protected region below.
+$settings = New-Object -TypeName System.Xml.XmlReaderSettings
+$settings.ValidationType = [System.Xml.ValidationType]::Schema
+
+# Register a validation event handler that throws on schema violations.
+# The scriptblock receives $sender and $eventArgs (ValidationEventArgs).
+$settings.add_ValidationEventHandler({
+    param ($sender, $eventArgs)
+    throw $eventArgs.Exception
+})
+
+$reader = $null
+$doc = New-Object -TypeName System.Xml.XmlDocument
+
+# Capture error state BEFORE any error-prone operation — including the schema
+# load below. Schemas.Add() reads and compiles the XSD from disk and can fail
+# (missing or malformed schema); it MUST be inside the detected window.
+# Otherwise a schema-load failure would leave the reader without a schema,
+# Load() would skip validation, and invalid XML would be accepted silently.
+$refLastKnownError = Get-ReferenceToLastError
+
+$actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
+$global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
+
+# Error-prone operations: schema load, reader creation, and document loading.
+# If Schemas.Add() fails the schema is never registered; if XmlReader.Create()
+# fails $reader remains $null and $doc.Load() also fails. The trap suppresses
+# all three, and the error-reference check below detects any of them.
+[void]($settings.Schemas.Add($null, $xsdPath))
+$reader = [System.Xml.XmlReader]::Create($xmlPath, $settings)
+$doc.Load($reader)  # Validation occurs during Load
+
+# Restore error preference
+$global:ErrorActionPreference = $actionPreferenceFormerErrorPreference
+
+# Close/dispose the reader regardless of whether operations succeeded
+# or failed. The null check handles the case where XmlReader.Create()
+# itself failed and $reader was never assigned.
+if ($null -ne $reader) {
+    $reader.Close()
+}
+
+# Detect whether any error occurred during schema load, reader creation,
+# or document loading
+$refNewestCurrentError = Get-ReferenceToLastError
+if (Test-ErrorOccurred $refLastKnownError $refNewestCurrentError) {
+    # Validation or schema load failed — report the error and abort
+    # processing of this XML file. $Error[0] contains the exception
+    # (XmlSchemaValidationException for schema violations, or other
+    # .NET exceptions for schema-load or reader-creation failures) with
+    # line number, position, and inner exception context for precise
+    # error reporting.
+}
+```
+
+> **Resource cleanup and error detection:** The `XmlReader` implements `IDisposable` and MUST be closed/disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the wrapper function pattern serves dual purposes: (1) the `trap { }` at function scope suppresses terminating errors from `$settings.Schemas.Add()`, `XmlReader.Create()`, **and** `$doc.Load($reader)`, allowing execution to continue to reader cleanup, and (2) the `Get-ReferenceToLastError` / `Test-ErrorOccurred` helper functions (see Section 1, "Error handling via function wrappers") detect whether any of those operations failed by comparing `$Error` stack references before and after the operations. Because the error baseline is captured **before** `Schemas.Add()`, a schema-load failure (missing or malformed XSD) is detected rather than silently leaving the reader without a schema. The conditional `$reader.Close()` (with null check) ensures cleanup is safe even if reader creation itself failed. This ensures both reliable resource cleanup AND reliable error detection — failures are not silently swallowed.
+
+If the XML does not conform to the XSD schema, the `ValidationEventHandler` fires and throws the `XmlSchemaValidationException`, which preserves line number, position, and inner exception context for precise error reporting. The `Test-ErrorOccurred` check after reader cleanup detects this failure and prevents invalid definitions from being processed. This provides formal structural validation without third-party libraries.
+
+### Access Mask Representation
+
+Delegation definitions use symbolic `ActiveDirectoryRights` enum names (e.g., `WriteProperty`, `ExtendedRight`, `CreateChild`) rather than raw numeric values. These are resolved at load time using `[System.Enum]::Parse()`:
+
+```powershell
+$rights = [System.Enum]::Parse(
+    [System.DirectoryServices.ActiveDirectoryRights],
+    $rightsName
+)
+```
+
+> **Version note:** `[System.Enum]::Parse()` is a .NET static method available in all PowerShell versions (1.0+). It throws an `ArgumentException` if `$rightsName` is not a valid member of the `ActiveDirectoryRights` enum, which serves as input validation for delegation definitions.
+
+### XML Schema Elements
+
+The delegation XML schema defines:
+
+- **`<delegation>`**: A delegation definition with attributes for `name`, `builtin` (boolean), `trustee` (SID or samAccountName), and child elements for locations and expected ACEs
+- **`<location>`**: A location pattern (DN or wildcard) where the delegation applies
+- **`<ace>`**: An expected ACE with attributes for `type` (Allow/Deny), `rights` (symbolic `ActiveDirectoryRights` names), `objectType` (GUID), `inheritedObjectType` (GUID)
+- **`<template>`**: A template definition with `name`, `appliesTo` filters, and `rights` arrays
+
+### Document-Level Structure
+
+All XML files — whether containing delegation definitions, risk classification configuration, or both — must use a single root element: **`<adeleg>`**. This root element serves as the container for all top-level elements:
+
+```xml
+<adeleg>
+  <!-- Delegation and template definitions -->
+  <delegation name="..." builtin="true" trustee="...">
+    <location>...</location>
+    <ace type="Allow" rights="..." objectType="..." />
+  </delegation>
+  <template name="..." appliesTo="...">
+    ...
+  </template>
+
+  <!-- Risk classification configuration (optional) -->
+  <unsafeTrustees>
+    <add sid="{domainSID}-513" />
+  </unsafeTrustees>
+  <tier0Resources>
+    <add sid="{domainSID}-500" />
+  </tier0Resources>
+  <dangerousDelegations>
+    <add rights="GenericAll" objectType="" category="A" description="Full control" />
+  </dangerousDelegations>
+</adeleg>
+```
+
+The `<adeleg>` root element may contain any combination of `<delegation>`, `<template>`, `<unsafeTrustees>`, `<tier0Resources>`, and `<dangerousDelegations>` child elements. All are optional — a file may contain only delegation definitions, only risk configuration, or both. The XSD schema (see XSD Schema Validation above) validates this structure: a file missing the `<adeleg>` root element, or containing unrecognized child elements, will fail validation.
+
+### Risk Classification Configuration Schema
+
+The XML schema defines elements for configuring risk classification rules (referenced by Sections 16.3.2, 16.4.3, and 17.4). These elements appear as children of the `<adeleg>` root element, either in the same XML files as delegation definitions or in separate configuration XML files:
+
+- **`<unsafeTrustees>`**: Container for unsafe trustee definitions. Contains `<add>` and `<remove>` child elements.
+  - **`<add sid="...">`**: Adds a SID to the unsafe trustee set. The `sid` attribute may contain a literal SID (e.g., `S-1-5-7`) or a pattern with a placeholder (e.g., `{domainSID}-513`). Patterns are expanded at runtime for each known domain.
+  - **`<remove sid="...">`**: Removes a SID from the baseline unsafe trustee set. Uses the same SID/pattern syntax as `<add>`.
+
+- **`<tier0Resources>`**: Container for Tier 0 resource definitions. Contains `<add>` and `<remove>` child elements.
+  - **`<add>`**: Adds a resource to the Tier 0 set. Supports the following attributes (at least one of `sid`, `dn`, or `objectClass` is required):
+    - `sid="..."` — Match by SID or SID pattern (e.g., `{domainSID}-500`)
+    - `dn="..."` — Match by DN pattern (e.g., `CN=AdminSDHolder,CN=System,{domainDN}`)
+    - `objectClass="..."` — Match by object class (e.g., `trustedDomain`)
+    - `tier="..."` — Optional sub-tier label (e.g., `Tier0-Critical`, `Tier0-High`; defaults to `Tier0`)
+
+    **Note:** XSD 1.0 (used by `XmlReader` schema validation on .NET Framework 2.0) cannot express the "at least one of `sid`/`dn`/`objectClass` must be present" constraint. In the XSD, all three attributes are declared `use="optional"`. The tool enforces this requirement via **runtime validation** after XSD validation: if an `<add>` element has none of `sid`, `dn`, or `objectClass`, the tool emits a clear error to stderr and exits with a nonzero code.
+  - **`<remove>`**: Removes a resource from the baseline Tier 0 set. Uses the same attribute syntax as `<add>`.
+
+- **`<dangerousDelegations>`**: Container for dangerous delegation type definitions. Contains `<add>` and `<remove>` child elements.
+  - **`<add>`**: Adds a dangerous delegation type. Attributes:
+    - `rights="..."` — Symbolic `ActiveDirectoryRights` name (e.g., `WriteProperty`, `ExtendedRight`)
+    - `objectType="..."` — Object type GUID (or empty for `Guid.Empty`)
+    - `category="..."` — Risk category: `A` (Full-Control), `B` (Dangerous Write), `C` (Control Access), `D` (Create/Delete), `E` (Validated Write)
+    - `description="..."` — Human-readable description of the attack vector
+    - `riskLevel="..."` — Optional custom risk level override (`Critical`, `High`, `Medium`, `Informational`)
+  - **`<remove>`**: Removes a delegation type from the baseline dangerous set. Uses `rights` and `objectType` attributes to identify the entry to remove.
+
+### Placeholder Expansion
+
+Placeholders in SID and DN patterns use curly-brace syntax (`{domainSID}`, `{forestRootDomainSID}`, `{domainDN}`, `{forestRootDN}`) rather than angle brackets, avoiding the need for XML entity escaping. At runtime, these placeholders are expanded using string replacement:
+
+```powershell
+# Per-domain expansion — executed for each known domain NC
+$expandedSid = $sidPattern -replace '\{domainSID\}', $domainSidString
+$expandedDn = $dnPattern -replace '\{domainDN\}', $domainDN
+
+# Forest-root expansion — executed once
+$expandedSid = $expandedSid -replace '\{forestRootDomainSID\}', $forestRootSidString
+$expandedDn = $expandedDn -replace '\{forestRootDN\}', $forestRootDN
+```
+
+> **Version note:** The `-replace` operator is available in all PowerShell versions (1.0+). Because `-replace` uses regular expressions, the curly braces in the placeholder patterns MUST be escaped with backslashes (`\{`, `\}`). Alternatively, `[string]::Replace()` can be used for literal string replacement without regex escaping:
+>
+> ```powershell
+> $expandedSid = $sidPattern.Replace('{domainSID}', $domainSidString)
+> ```
+>
+> Both approaches produce identical results. `[string]::Replace()` is slightly more readable for literal replacements; `-replace` is more flexible for pattern-based substitutions.
+
+`{domainSID}` and `{domainDN}` are expanded for each known domain, `{forestRootDomainSID}` is expanded once using the forest root domain's SID (used for forest-root-only groups such as Schema Admins, Enterprise Admins, and Enterprise Key Admins), and `{forestRootDN}` is expanded using the forest root domain's DN. This is analogous to how delegation location wildcards (`DC=*`) are expanded (see Location Wildcards below).
+
+### Location Wildcards
+
+Delegation definitions support the following wildcard patterns for locations, which are expanded at load time:
+
+| Pattern | Expansion |
+| --- | --- |
+| `DC=*` | Each domain's DN in the forest |
+| `CN=Configuration,DC=*` | The Configuration naming context |
+| `CN=Schema,DC=*` | The Schema naming context |
+| `DC=DomainDnsZones,DC=*` | Expanded using each domain's DN |
+| `DC=ForestDnsZones,DC=*` | Expanded using the root domain NC |
+
+These are a closed set of supported patterns, not true glob-style wildcards.
+
+### Resource Representation
+
+Resources in the CSV `Resource` column are represented as:
+
+- **Distinguished Names (DNs)**: Full LDAP DNs like `CN=Users,DC=example,DC=com`
+- **Schema references**: Formatted as `Schema: default security descriptor of class '{className}'`
+- **`Global`**: Used for non-location-specific findings
+
+### Multi-Valued Attribute Handling
+
+For multi-valued attributes:
+
+- `objectClass`: The last value (most-specific class) is used for class determination. The ordering (most-specific-last) is relied upon as a standard AD behavior.
+- `namingContexts`: All values are used (each represents a naming context to scan).
+- Other multi-valued attributes: The specific handling depends on the attribute's purpose and is defined per-attribute where relevant.
 
 ---
 

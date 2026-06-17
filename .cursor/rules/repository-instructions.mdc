@@ -1,25 +1,31 @@
-<!-- markdownlint-disable MD013 -->
-# Agent Instructions for Gemini Code Assist
+---
+description: Repository-wide instructions for Cursor Agent in this template.
+alwaysApply: true
+---
 
-**Version:** 1.3.20260617.0
+<!-- markdownlint-disable MD013 -->
+
+# Agent Instructions for Cursor Agent
+
+**Version:** 1.0.20260617.1
 
 ## Metadata
 
 - **Status:** Active
 - **Owner:** Repository Maintainers
 - **Last Updated:** 2026-06-17
-- **Scope:** Agent-specific entry point for Gemini Code Assist and compatible AI coding agents operating in this repository. Mirrors a minimal inline summary of the highest-priority shared rules; `.github/copilot-instructions.md` remains the canonical source of truth.
+- **Scope:** Agent-specific project rule for Cursor Agent and compatible AI coding agents operating in this repository. Mirrors a minimal inline summary of the highest-priority shared rules; `.github/copilot-instructions.md` remains the canonical source of truth.
 <!-- template-sync: begin markdown-reference-only -->
-- **Related:** [Repository Copilot Instructions](.github/copilot-instructions.md), [Documentation Writing Style](.github/instructions/docs.instructions.md)
+- **Related:** [Repository Copilot Instructions](../../.github/copilot-instructions.md), [Documentation Writing Style](../../.github/instructions/docs.instructions.md)
 <!-- template-sync: end markdown-reference-only -->
 
-This file provides project-specific instructions for Gemini Code Assist and compatible AI coding agents operating in this repository. These instructions ensure that agents follow the same coding standards, safety rules, and workflows that apply to all contributors.
+This file provides project-specific instructions for Cursor Agent and compatible AI coding agents operating in this repository. These instructions ensure that agents follow the same coding standards, safety rules, and workflows that apply to all contributors.
 
 ## Canonical Instructions
 
 The authoritative source of truth for all repository rules is **`.github/copilot-instructions.md`** (the repo-wide constitution). All rules defined there apply without exception. **Read that file before making any changes.**
 
-This file intentionally keeps only a minimal inline summary of the highest-priority shared rules so that agents receive critical guidance immediately. The full shared rule set remains in the canonical file above.
+This file intentionally keeps only a minimal inline summary of the highest-priority shared rules so that Cursor receives critical guidance immediately. The full shared rule set remains in the canonical file above.
 
 **Thin entry point classification:** A thin entry point keeps shared repository rules brief; it does not mean platform-specific or required protocol sections may be discarded. Sections explicitly labeled as platform protocol or required protocol must be preserved unless the repository owner explicitly waives that protocol for the retained agent platform.
 
@@ -45,10 +51,10 @@ During downstream template adoption and stack selection, perform non-protected c
   - Use the repository's existing validation commands as needed:
     - `npm run lint:md`
     - `Invoke-Pester -Path tests/ -Output Detailed`
-  - The `pre-commit run --all-files` command exercises the active hooks configured in [`.pre-commit-config.yaml`](.pre-commit-config.yaml), the authoritative list of active hooks.
+  - The `pre-commit run --all-files` command exercises the active hooks configured in [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml), the authoritative list of active hooks.
   - Retained YAML checks include YAML parsing (`check-yaml`).
   - Retained data-file authoring guidance lives in the matching module docs.
-  - YAML guidance: [`.github/instructions/yaml.instructions.md`](.github/instructions/yaml.instructions.md).
+  - YAML guidance: [`.github/instructions/yaml.instructions.md`](../../.github/instructions/yaml.instructions.md).
 
 - **Modular instruction files**
   - Read the relevant file under `.github/instructions/` before modifying matching files:
