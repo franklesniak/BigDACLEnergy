@@ -914,7 +914,7 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
 
 ### Step 3: Delegation and Template Loading
 
-- **Load built-in delegation definitions.** In the archived C# specification, built-in definitions were loaded from embedded assembly resources via `Assembly.GetManifestResourceStream()`. In PowerShell, embedded assembly resources are not available. Instead, the tool MUST use one of the following approaches to load built-in delegation definitions:
+- **Load built-in delegation definitions.** In the archived C# specification, built-in definitions were loaded from embedded assembly resources via `Assembly.GetManifestResourceStream()`. Because this tool ships as a plain PowerShell script rather than a compiled .NET assembly, it has no assembly of its own in which to embed manifest resources — there is no script-local equivalent to C# embedded resources. (PowerShell can still call `Assembly.GetManifestResourceStream()` against *other* compiled assemblies that carry manifest resources; the limitation is specific to the script's own deployment model, not the .NET API.) Instead, the tool MUST use one of the following approaches to load built-in delegation definitions:
 
   1. **Separate XML file distributed with the script (recommended):** Store built-in definitions in an XML file (e.g., `delegations-builtin.xml`) alongside the script. Load using:
 
