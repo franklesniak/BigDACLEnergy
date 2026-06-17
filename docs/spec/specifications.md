@@ -866,26 +866,26 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
 - Read RootDSE for naming contexts and schema/configuration DNs
 - **Domain enumeration and SID collection**: Use `[System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Domains` (or `[System.DirectoryServices.ActiveDirectory.Forest]::GetForest($context).Domains` with `-Server`) to enumerate all domains in the forest — this is the authoritative runtime source for the known-domain-NC set (see Section 1, "Known Domain NC Definition"). For each `Domain` object, obtain a `DirectoryEntry` via `$entry = $domain.GetDirectoryEntry()`. The returned `DirectoryEntry` implements `IDisposable` and holds unmanaged ADSI handles, so it MUST be disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the property reads on `$entry` **and** the call to `$entry.Dispose()` MUST be executed inside a wrapper function following one of the two patterns defined in Section 1 ("Error handling via function wrappers" — `_SimpleFunctionTemplate.ps1` or `_RobustCloudServiceFunctionTemplate.ps1`). Within the wrapper function, the `trap { }` statement suppresses terminating errors, and `$entry.Dispose()` is placed after the property accesses so that `.Dispose()` is reached during normal control flow. After disposal, the wrapper MUST invoke `Get-ReferenceToLastError` / `Test-ErrorOccurred` to detect whether any of the property reads or the `GetDirectoryEntry()` call failed — if an error is detected, the failure MUST be reported and MUST NOT be silently swallowed.
 
-    Read `Properties["objectSid"]` — note that `Properties["objectSid"]` returns a `PropertyValueCollection`, so the value must be indexed and cast. The following code executes within the wrapper function scope described above:
+  Read `Properties["objectSid"]` — note that `Properties["objectSid"]` returns a `PropertyValueCollection`, so the value must be indexed and cast. The following code executes within the wrapper function scope described above:
 
-    ```powershell
-    $sidBytes = [byte[]]$entry.Properties["objectSid"][0]
-    $domainSid = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $sidBytes, 0
-    ```
+  ```powershell
+  $sidBytes = [byte[]]$entry.Properties["objectSid"][0]
+  $domainSid = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $sidBytes, 0
+  ```
 
-    The domain's DN can be read from `$entry.Properties["distinguishedName"][0]` within the same wrapper function scope, followed by `$entry.Dispose()`. This collects SIDs for **all** known domain NCs — not just the current domain — which is required for deleted-trustee detection (Section 7) and per-domain SDDL alias expansion (Step 4). The `Domain.Name` property provides the DNS name.
+  The domain's DN can be read from `$entry.Properties["distinguishedName"][0]` within the same wrapper function scope, followed by `$entry.Dispose()`. This collects SIDs for **all** known domain NCs — not just the current domain — which is required for deleted-trustee detection (Section 7) and per-domain SDDL alias expansion (Step 4). The `Domain.Name` property provides the DNS name.
 
 - **NetBIOS name mapping**: Since `Domain` objects do not expose NetBIOS names directly, query `CN=Partitions,<configurationNamingContext>` via `DirectorySearcher` with filter `(&(objectClass=crossRef)(nCName=*)(nETBIOSName=*))` to retrieve the `nETBIOSName` for each domain NC, and map them to the `Forest.Domains` set collected above by matching each `crossRef` object's `nCName` to the corresponding domain's distinguished name. This reconciles the `crossRef`-based definition from Section 1 with the managed API enumeration — both should produce the same set of domain NCs.
 
 - **Progress output**: Report connection status using `[System.Console]::Error.WriteLine()`:
 
-    ```powershell
-    [System.Console]::Error.WriteLine(
-        [string]::Format("[*] Connected to {0}", $targetServer)
-    )
-    ```
+  ```powershell
+  [System.Console]::Error.WriteLine(
+      [string]::Format("[*] Connected to {0}", $targetServer)
+  )
+  ```
 
-    where `$targetServer` is the `-Server` value if specified, or the domain controller hostname obtained via `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().FindDomainController().Name` when using the default DC locator path.
+  where `$targetServer` is the `-Server` value if specified, or the domain controller hostname obtained via `[System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().FindDomainController().Name` when using the default DC locator path.
 
 > **Progress and diagnostic output — stream selection:** All progress and diagnostic messages MUST go to stderr, not stdout, to ensure clean stdout separation for CSV data. The following approaches are available in PowerShell:
 >
@@ -905,61 +905,61 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
 - Query `controlAccessRight` objects via `DirectorySearcher` on the Configuration NC for property sets (`validAccesses=48`), validated writes (`validAccesses=8`), and control access rights (`validAccesses=256`)
 - Report progress:
 
-    ```powershell
-    [System.Console]::Error.WriteLine(
-        [string]::Format("[*] Schema loaded: {0} classes, {1} attributes, {2} extended rights",
-            $classCount, $attrCount, $rightCount)
-    )
-    ```
+  ```powershell
+  [System.Console]::Error.WriteLine(
+      [string]::Format("[*] Schema loaded: {0} classes, {1} attributes, {2} extended rights",
+          $classCount, $attrCount, $rightCount)
+  )
+  ```
 
 ### Step 3: Delegation and Template Loading
 
 - **Load built-in delegation definitions.** In the archived C# specification, built-in definitions were loaded from embedded assembly resources via `Assembly.GetManifestResourceStream()`. In PowerShell, embedded assembly resources are not available. Instead, the tool MUST use one of the following approaches to load built-in delegation definitions:
 
-    1. **Separate XML file distributed with the script (recommended):** Store built-in definitions in an XML file (e.g., `delegations-builtin.xml`) alongside the script. Load using:
+  1. **Separate XML file distributed with the script (recommended):** Store built-in definitions in an XML file (e.g., `delegations-builtin.xml`) alongside the script. Load using:
 
-        ```powershell
-        $xml = New-Object -TypeName System.Xml.XmlDocument
-        $xml.Load($builtinXmlPath)
-        ```
+      ```powershell
+      $xml = New-Object -TypeName System.Xml.XmlDocument
+      $xml.Load($builtinXmlPath)
+      ```
 
-        This approach provides the best maintainability: delegation definitions can be reviewed, edited, and version-controlled independently of the script logic.
+      This approach provides the best maintainability: delegation definitions can be reviewed, edited, and version-controlled independently of the script logic.
 
-    2. **Inline here-string in the script itself (fallback for single-file deployment):** Embed the XML content as a string literal in the script and parse it directly:
+  2. **Inline here-string in the script itself (fallback for single-file deployment):** Embed the XML content as a string literal in the script and parse it directly:
 
-        ```powershell
-        $xmlString = @"
-        <adeleg>
-          <delegation name="..." builtin="true" trustee="...">
-            <location>...</location>
-            <ace type="Allow" rights="..." objectType="..." />
-          </delegation>
-        </adeleg>
-        "@
-        $xml = New-Object -TypeName System.Xml.XmlDocument
-        $xml.LoadXml($xmlString)
-        ```
+      ```powershell
+      $xmlString = @"
+      <adeleg>
+        <delegation name="..." builtin="true" trustee="...">
+          <location>...</location>
+          <ace type="Allow" rights="..." objectType="..." />
+        </delegation>
+      </adeleg>
+      "@
+      $xml = New-Object -TypeName System.Xml.XmlDocument
+      $xml.LoadXml($xmlString)
+      ```
 
-        > **Here-string terminator:** In PowerShell, the closing `"@` of a here-string MUST appear at the very beginning of the line (column 1) with no leading whitespace. The indentation shown above is for display purposes within this specification only. In actual implementation, the `"@` line must be unindented.
+      > **Here-string terminator:** In PowerShell, the closing `"@` of a here-string MUST appear at the very beginning of the line (column 1) with no leading whitespace. The indentation shown above is for display purposes within this specification only. In actual implementation, the `"@` line must be unindented.
 
-        This enables single-file deployment without external dependencies but makes editing delegation definitions harder.
+      This enables single-file deployment without external dependencies but makes editing delegation definitions harder.
 
-    3. **`DATA` section (PS 2.0+):** PowerShell 2.0 and later support `DATA` sections for embedding static data. However, `DATA` sections are not available in PowerShell 1.0 and provide limited benefit over here-strings for XML content. This approach is NOT RECOMMENDED for cross-version compatibility.
+  3. **`DATA` section (PS 2.0+):** PowerShell 2.0 and later support `DATA` sections for embedding static data. However, `DATA` sections are not available in PowerShell 1.0 and provide limited benefit over here-strings for XML content. This approach is NOT RECOMMENDED for cross-version compatibility.
 
-    > **Recommendation:** Use approach (1) — a separate XML file — as the primary mechanism. This aligns with the tool's existing support for user-provided XML files (`-Delegations`, `-Templates`) and enables the same XSD validation path for both built-in and user-provided definitions. Approach (2) may be used as a fallback when single-file distribution is required.
+  > **Recommendation:** Use approach (1) — a separate XML file — as the primary mechanism. This aligns with the tool's existing support for user-provided XML files (`-Delegations`, `-Templates`) and enables the same XSD validation path for both built-in and user-provided definitions. Approach (2) may be used as a fallback when single-file distribution is required.
 
 - **Reading XML file content across PowerShell versions:** The `[System.Xml.XmlDocument].Load($path)` method works in all PowerShell versions and is the recommended approach for loading XML from files. For scenarios where XML content must be read as a string first (e.g., for preprocessing), use version-conditional logic:
 
-    > **Version note — `Get-Content -Raw` (PS 3.0+):** `Get-Content -Raw` reads an entire file as a single string. On PowerShell 1.0/2.0, use `[System.IO.File]::ReadAllText($path)` instead:
-    >
-    > ```powershell
-    > $versionPS = Get-PSVersion
-    > if ($versionPS.Major -ge 3) {
-    >     $xmlContent = Get-Content -Path $xmlPath -Raw
-    > } else {
-    >     $xmlContent = [System.IO.File]::ReadAllText($xmlPath)
-    > }
-    > ```
+  > **Version note — `Get-Content -Raw` (PS 3.0+):** `Get-Content -Raw` reads an entire file as a single string. On PowerShell 1.0/2.0, use `[System.IO.File]::ReadAllText($path)` instead:
+  >
+  > ```powershell
+  > $versionPS = Get-PSVersion
+  > if ($versionPS.Major -ge 3) {
+  >     $xmlContent = Get-Content -Path $xmlPath -Raw
+  > } else {
+  >     $xmlContent = [System.IO.File]::ReadAllText($xmlPath)
+  > }
+  > ```
 
 - Optionally load user-provided templates (`-Templates`) and delegations (`-Delegations`) from external XML files, validated against XSD schema (see Section 11 for the validation mechanism)
 - For each delegation, derive expected ACEs by resolving trustees and locations, and index them by SID → Location
@@ -985,13 +985,13 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
 
 - Report progress periodically using carriage-return-based overwrite:
 
-    ```powershell
-    [System.Console]::Error.Write(
-        [string]::Format("`r[{0}] {1} objects processed...", $ncDN, $count)
-    )
-    ```
+  ```powershell
+  [System.Console]::Error.Write(
+      [string]::Format("`r[{0}] {1} objects processed...", $ncDN, $count)
+  )
+  ```
 
-    > **Note:** The backtick-r (`` `r ``) is PowerShell's escape sequence for the carriage return character (`\r` in C#). `[System.Console]::Error.Write()` (not `WriteLine`) is used to overwrite the current line in-place, providing a continuously updating progress indicator without scrolling.
+  > **Note:** The backtick-r (`` `r ``) is PowerShell's escape sequence for the carriage return character (`\r` in C#). `[System.Console]::Error.Write()` (not `WriteLine`) is used to overwrite the current line in-place, providing a continuously updating progress indicator without scrolling.
 
 ### Step 6: Post-Processing
 
@@ -1016,12 +1016,12 @@ When `ContainerInherit` is not set, no inheritance scope text is included.
 - For each entry, write CSV records for: errors/warnings, owner, DACL protection, non-canonical ACL, deleted trustees, orphan ACEs, and matched delegations
 - Report final summary to stderr (and log file if `-Log` is active) using the format defined in Section 13.3 — `[i]` prefix, object/ACE/SD counts, and elapsed time formatted as `hh:mm:ss` (or `mm:ss` for scans under one hour):
 
-    ```powershell
-    [System.Console]::Error.WriteLine(
-        [string]::Format("[i] Scan complete: {0} objects, {1} ACEs, {2} SDs in {3}",
-            $objectCount, $aceCount, $sdCount, $elapsed)
-    )
-    ```
+  ```powershell
+  [System.Console]::Error.WriteLine(
+      [string]::Format("[i] Scan complete: {0} objects, {1} ACEs, {2} SDs in {3}",
+          $objectCount, $aceCount, $sdCount, $elapsed)
+  )
+  ```
 
 ---
 
@@ -1100,104 +1100,104 @@ For each location/result pair in the scan results, the following record types ar
 
 - **Encoding**: UTF-8 without BOM. This MUST be specified explicitly because PowerShell's default encoding varies by version and is NOT UTF-8:
 
-    | PowerShell Version | `Out-File` / `Set-Content` Default | Notes |
-    | --- | --- | --- |
-    | PS 1.0–5.1 | System locale encoding or UTF-16LE | NOT suitable for cross-platform CSV |
-    | PS 7.x | UTF-8 (no BOM) | `Set-Content -Encoding UTF8NoBOM` is available |
+  | PowerShell Version | `Out-File` / `Set-Content` Default | Notes |
+  | --- | --- | --- |
+  | PS 1.0–5.1 | System locale encoding or UTF-16LE | NOT suitable for cross-platform CSV |
+  | PS 7.x | UTF-8 (no BOM) | `Set-Content -Encoding UTF8NoBOM` is available |
 
-    The `StreamWriter` approach described below is mandatory for consistent UTF-8 (no BOM) output across all supported PowerShell versions.
+  The `StreamWriter` approach described below is mandatory for consistent UTF-8 (no BOM) output across all supported PowerShell versions.
 
 - **UTF-8 without BOM encoding object**:
 
-    ```powershell
-    $utf8NoBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
-    ```
+  ```powershell
+  $utf8NoBom = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+  ```
 
 - **File output** (when `-Csv` specifies a file path):
 
-    ```powershell
-    $stream = New-Object -TypeName System.IO.FileStream -ArgumentList $csvPath,
-        ([System.IO.FileMode]::Create),
-        ([System.IO.FileAccess]::Write),
-        ([System.IO.FileShare]::Read)
-    $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stream, $utf8NoBom
-    # Force RFC 4180 CRLF record terminators on every WriteLine() regardless of host
-    # OS. StreamWriter.NewLine defaults to the platform terminator, which is LF on
-    # PowerShell 7+ running on Linux/macOS; without this the output would not be CRLF.
-    $writer.NewLine = "`r`n"
-    ```
+  ```powershell
+  $stream = New-Object -TypeName System.IO.FileStream -ArgumentList $csvPath,
+      ([System.IO.FileMode]::Create),
+      ([System.IO.FileAccess]::Write),
+      ([System.IO.FileShare]::Read)
+  $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stream, $utf8NoBom
+  # Force RFC 4180 CRLF record terminators on every WriteLine() regardless of host
+  # OS. StreamWriter.NewLine defaults to the platform terminator, which is LF on
+  # PowerShell 7+ running on Linux/macOS; without this the output would not be CRLF.
+  $writer.NewLine = "`r`n"
+  ```
 
-    The `FileStream` and `StreamWriter` MUST be disposed after all CSV rows are written. Since `try/finally` MUST NOT be used (see Section 1), use the `trap`-based error handling pattern to ensure `.Close()` is reached. `StreamWriter.Close()` flushes buffered output and disposes the underlying stream — omitting this risks truncating the final bytes:
+  The `FileStream` and `StreamWriter` MUST be disposed after all CSV rows are written. Since `try/finally` MUST NOT be used (see Section 1), use the `trap`-based error handling pattern to ensure `.Close()` is reached. `StreamWriter.Close()` flushes buffered output and disposes the underlying stream — omitting this risks truncating the final bytes:
 
-    ```powershell
-    trap {
-        if ($null -ne $writer) { $writer.Close() }
-        elseif ($null -ne $stream) { $stream.Close() }
-    }
+  ```powershell
+  trap {
+      if ($null -ne $writer) { $writer.Close() }
+      elseif ($null -ne $stream) { $stream.Close() }
+  }
 
-    # ... write CSV rows via $writer.WriteLine(...) ...
+  # ... write CSV rows via $writer.WriteLine(...) ...
 
-    $writer.Close()
-    ```
+  $writer.Close()
+  ```
 
 - **Stdout output** (when `-Csv -` or default): Wrap `[System.Console]::OpenStandardOutput()` in a `StreamWriter`:
 
-    ```powershell
-    $stdoutStream = [System.Console]::OpenStandardOutput()
-    $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stdoutStream, $utf8NoBom
-    # Force RFC 4180 CRLF record terminators (see the file-output example above);
-    # StreamWriter.NewLine is LF by default on PowerShell 7+ on non-Windows hosts.
-    $writer.NewLine = "`r`n"
-    ```
+  ```powershell
+  $stdoutStream = [System.Console]::OpenStandardOutput()
+  $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stdoutStream, $utf8NoBom
+  # Force RFC 4180 CRLF record terminators (see the file-output example above);
+  # StreamWriter.NewLine is LF by default on PowerShell 7+ on non-Windows hosts.
+  $writer.NewLine = "`r`n"
+  ```
 
-    **Do NOT use `[System.Console]::Out` directly** for CSV output, as `[System.Console]::OutputEncoding` defaults to the system's OEM code page on Windows. The `StreamWriter` must be disposed (or at minimum flushed) after all CSV rows are written — `StreamWriter` buffers output internally, so omitting `.Flush()` / `.Close()` risks truncating the final bytes. The `trap`-based pattern above handles this.
+  **Do NOT use `[System.Console]::Out` directly** for CSV output, as `[System.Console]::OutputEncoding` defaults to the system's OEM code page on Windows. The `StreamWriter` must be disposed (or at minimum flushed) after all CSV rows are written — `StreamWriter` buffers output internally, so omitting `.Flush()` / `.Close()` risks truncating the final bytes. The `trap`-based pattern above handles this.
 
-    > **Important:** Do NOT use `Out-File`, `Set-Content`, or `Export-Csv` for CSV output. `Out-File` and `Set-Content` in PS 1.0–5.1 default to system locale encoding or UTF-16LE, NOT UTF-8. `Export-Csv` is NOT suitable because: (1) its output format varies by PowerShell version, (2) it adds `#TYPE` information headers by default (suppressible via `-NoTypeInformation`, which is available in all PS versions including PS 1.0), and (3) it does not guarantee RFC 4180 compliance with CRLF line endings across all PS versions. The `StreamWriter` approach is the only reliable cross-version method for producing consistent UTF-8 (no BOM) CSV output.
+  > **Important:** Do NOT use `Out-File`, `Set-Content`, or `Export-Csv` for CSV output. `Out-File` and `Set-Content` in PS 1.0–5.1 default to system locale encoding or UTF-16LE, NOT UTF-8. `Export-Csv` is NOT suitable because: (1) its output format varies by PowerShell version, (2) it adds `#TYPE` information headers by default (suppressible via `-NoTypeInformation`, which is available in all PS versions including PS 1.0), and (3) it does not guarantee RFC 4180 compliance with CRLF line endings across all PS versions. The `StreamWriter` approach is the only reliable cross-version method for producing consistent UTF-8 (no BOM) CSV output.
 
 - **RFC 4180 quoting rules**: CSV field quoting MUST be implemented manually. Fields containing commas, double-quotes, or newlines are enclosed in double-quotes. Embedded double-quotes are escaped as `""`. The line terminator is CRLF (`"`r`n"` in PowerShell). A minimal quoting function:
 
-    ```powershell
-    # Quotes a single CSV field value per RFC 4180.
-    # Returns the field with appropriate quoting applied.
-    function ConvertTo-CsvField {
-        param (
-            $Value
-        )
+  ```powershell
+  # Quotes a single CSV field value per RFC 4180.
+  # Returns the field with appropriate quoting applied.
+  function ConvertTo-CsvField {
+      param (
+          $Value
+      )
 
-        if ($null -eq $Value) {
-            $text = ""
-        } else {
-            $text = [string]$Value
-        }
+      if ($null -eq $Value) {
+          $text = ""
+      } else {
+          $text = [string]$Value
+      }
 
-        # Escape embedded double-quotes by doubling them
-        $text = $text -replace '"', '""'
+      # Escape embedded double-quotes by doubling them
+      $text = $text -replace '"', '""'
 
-        # Always quote the field for consistency and safety
-        return ('"' + $text + '"')
-    }
-    ```
+      # Always quote the field for consistency and safety
+      return ('"' + $text + '"')
+  }
+  ```
 
-    > **Note:** The function above unconditionally quotes all fields. While RFC 4180 only requires quoting for fields that contain commas, double-quotes, or CRLF, unconditional quoting is safe, simpler, and avoids edge-case bugs. This approach is consistent across all PowerShell versions.
+  > **Note:** The function above unconditionally quotes all fields. While RFC 4180 only requires quoting for fields that contain commas, double-quotes, or CRLF, unconditional quoting is safe, simpler, and avoids edge-case bugs. This approach is consistent across all PowerShell versions.
 
-    Row assembly joins quoted fields with the delimiter and writes via `$writer.WriteLine()`:
+  Row assembly joins quoted fields with the delimiter and writes via `$writer.WriteLine()`:
 
-    ```powershell
-    $fields = @()
-    $fields += (ConvertTo-CsvField $resource)
-    $fields += (ConvertTo-CsvField $trustee)
-    # ... remaining fields ...
-    $writer.WriteLine([string]::Join(",", $fields))
-    ```
+  ```powershell
+  $fields = @()
+  $fields += (ConvertTo-CsvField $resource)
+  $fields += (ConvertTo-CsvField $trustee)
+  # ... remaining fields ...
+  $writer.WriteLine([string]::Join(",", $fields))
+  ```
 
-    > **Version note — `[PSCustomObject]` (Tier 2 / PS 3.0+):** When building structured result objects for sorting before CSV output, use `[PSCustomObject]@{...}` on PS 3.0+. On PS 1.0/2.0, use `New-Object -TypeName PSObject` with `Add-Member`:
-    >
-    > ```powershell
-    > $record = New-Object -TypeName PSObject
-    > $record | Add-Member -MemberType NoteProperty -Name "Resource" -Value $resource
-    > $record | Add-Member -MemberType NoteProperty -Name "Trustee" -Value $trustee
-    > # ... remaining properties ...
-    > ```
+  > **Version note — `[PSCustomObject]` (Tier 2 / PS 3.0+):** When building structured result objects for sorting before CSV output, use `[PSCustomObject]@{...}` on PS 3.0+. On PS 1.0/2.0, use `New-Object -TypeName PSObject` with `Add-Member`:
+  >
+  > ```powershell
+  > $record = New-Object -TypeName PSObject
+  > $record | Add-Member -MemberType NoteProperty -Name "Resource" -Value $resource
+  > $record | Add-Member -MemberType NoteProperty -Name "Trustee" -Value $trustee
+  > # ... remaining properties ...
+  > ```
 
 ### DN String Encoding
 
@@ -1225,40 +1225,40 @@ In PowerShell, XML parsing uses the `System.Xml.XmlDocument` class with XPath-ba
 
 - **DOM-based access (recommended):** Create an `XmlDocument` explicitly and load from a file path or stream:
 
-    ```powershell
-    $xml = New-Object -TypeName System.Xml.XmlDocument
-    $xml.Load($xmlPath)
-    ```
+  ```powershell
+  $xml = New-Object -TypeName System.Xml.XmlDocument
+  $xml.Load($xmlPath)
+  ```
 
-    This approach works in all PowerShell versions (1.0+) and provides full XPath query support via `$xml.SelectNodes()` and `$xml.SelectSingleNode()`.
+  This approach works in all PowerShell versions (1.0+) and provides full XPath query support via `$xml.SelectNodes()` and `$xml.SelectSingleNode()`.
 
 - **`[xml]` type accelerator (PS 2.0+):** Parse XML content from a string:
 
-    ```powershell
-    $xmlContent = [System.IO.File]::ReadAllText($xmlPath)
-    $xml = [xml]$xmlContent
-    ```
+  ```powershell
+  $xmlContent = [System.IO.File]::ReadAllText($xmlPath)
+  $xml = [xml]$xmlContent
+  ```
 
-    The `[xml]` type accelerator is a shorthand for `[System.Xml.XmlDocument]` and is available in PowerShell 2.0 and later. On PowerShell 1.0, use the explicit `New-Object` approach above.
+  The `[xml]` type accelerator is a shorthand for `[System.Xml.XmlDocument]` and is available in PowerShell 2.0 and later. On PowerShell 1.0, use the explicit `New-Object` approach above.
 
-    > **Version note — `Get-Content -Raw` (PS 3.0+):** When reading XML content as a string, `Get-Content -Raw` is available on PS 3.0+ to read the entire file in one operation. On PS 1.0/2.0, use `[System.IO.File]::ReadAllText($path)` instead.
+  > **Version note — `Get-Content -Raw` (PS 3.0+):** When reading XML content as a string, `Get-Content -Raw` is available on PS 3.0+ to read the entire file in one operation. On PS 1.0/2.0, use `[System.IO.File]::ReadAllText($path)` instead.
 
 - **XPath navigation:** After loading, delegation and template elements are accessed via XPath queries rather than deserialization:
 
-    ```powershell
-    $delegations = $xml.SelectNodes("//delegation")
-    foreach ($delegation in $delegations) {
-        $name = $delegation.GetAttribute("name")
-        $builtin = $delegation.GetAttribute("builtin")
-        $trustee = $delegation.GetAttribute("trustee")
+  ```powershell
+  $delegations = $xml.SelectNodes("//delegation")
+  foreach ($delegation in $delegations) {
+      $name = $delegation.GetAttribute("name")
+      $builtin = $delegation.GetAttribute("builtin")
+      $trustee = $delegation.GetAttribute("trustee")
 
-        $locations = $delegation.SelectNodes("location")
-        $aces = $delegation.SelectNodes("ace")
-        # ... process each delegation ...
-    }
-    ```
+      $locations = $delegation.SelectNodes("location")
+      $aces = $delegation.SelectNodes("ace")
+      # ... process each delegation ...
+  }
+  ```
 
-    This XPath-based approach replaces the `XmlSerializer` deserialization pattern from the C# specification and is the recommended approach for PowerShell.
+  This XPath-based approach replaces the `XmlSerializer` deserialization pattern from the C# specification and is the recommended approach for PowerShell.
 
 ### XSD Schema Validation
 
