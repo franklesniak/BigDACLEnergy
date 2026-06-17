@@ -1266,13 +1266,15 @@ All XML files loaded by the tool — whether they contain delegation definitions
 
 ```powershell
 # The wrapper function's trap { } at function scope catches any terminating
-# error from XmlReader.Create() or $doc.Load(), allowing execution to
-# continue to reader cleanup and error detection.
+# error from Schemas.Add(), XmlReader.Create(), or $doc.Load(), allowing
+# execution to continue to reader cleanup and error detection.
 trap { }
 
-# Reliable setup: XmlReaderSettings configuration is not error-prone
+# Reliable setup: constructing the settings object, selecting the validation
+# type, and registering the event handler do not touch the filesystem and are
+# not error-prone. Loading the XSD itself (Schemas.Add) IS error-prone and is
+# deferred to the protected region below.
 $settings = New-Object -TypeName System.Xml.XmlReaderSettings
-[void]($settings.Schemas.Add($null, $xsdPath))
 $settings.ValidationType = [System.Xml.ValidationType]::Schema
 
 # Register a validation event handler that throws on schema violations.
@@ -1285,15 +1287,21 @@ $settings.add_ValidationEventHandler({
 $reader = $null
 $doc = New-Object -TypeName System.Xml.XmlDocument
 
-# Capture error state before the error-prone operations
+# Capture error state BEFORE any error-prone operation — including the schema
+# load below. Schemas.Add() reads and compiles the XSD from disk and can fail
+# (missing or malformed schema); it MUST be inside the detected window.
+# Otherwise a schema-load failure would leave the reader without a schema,
+# Load() would skip validation, and invalid XML would be accepted silently.
 $refLastKnownError = Get-ReferenceToLastError
 
 $actionPreferenceFormerErrorPreference = $global:ErrorActionPreference
 $global:ErrorActionPreference = [System.Management.Automation.ActionPreference]::SilentlyContinue
 
-# Error-prone operations: reader creation and document loading.
-# If XmlReader.Create() fails, $reader remains $null and $doc.Load()
-# will also fail; the trap suppresses both errors.
+# Error-prone operations: schema load, reader creation, and document loading.
+# If Schemas.Add() fails the schema is never registered; if XmlReader.Create()
+# fails $reader remains $null and $doc.Load() also fails. The trap suppresses
+# all three, and the error-reference check below detects any of them.
+[void]($settings.Schemas.Add($null, $xsdPath))
 $reader = [System.Xml.XmlReader]::Create($xmlPath, $settings)
 $doc.Load($reader)  # Validation occurs during Load
 
@@ -1307,18 +1315,20 @@ if ($null -ne $reader) {
     $reader.Close()
 }
 
-# Detect whether any error occurred during reader creation or loading
+# Detect whether any error occurred during schema load, reader creation,
+# or document loading
 $refNewestCurrentError = Get-ReferenceToLastError
 if (Test-ErrorOccurred $refLastKnownError $refNewestCurrentError) {
-    # Validation failed — report the error and abort processing of
-    # this XML file. $Error[0] contains the exception
+    # Validation or schema load failed — report the error and abort
+    # processing of this XML file. $Error[0] contains the exception
     # (XmlSchemaValidationException for schema violations, or other
-    # .NET exceptions for reader creation failures) with line number,
-    # position, and inner exception context for precise error reporting.
+    # .NET exceptions for schema-load or reader-creation failures) with
+    # line number, position, and inner exception context for precise
+    # error reporting.
 }
 ```
 
-> **Resource cleanup and error detection:** The `XmlReader` implements `IDisposable` and MUST be closed/disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the wrapper function pattern serves dual purposes: (1) the `trap { }` at function scope suppresses terminating errors from **both** `XmlReader.Create()` and `$doc.Load($reader)`, allowing execution to continue to reader cleanup, and (2) the `Get-ReferenceToLastError` / `Test-ErrorOccurred` helper functions (see Section 1, "Error handling via function wrappers") detect whether either operation failed by comparing `$Error` stack references before and after the operations. The conditional `$reader.Close()` (with null check) ensures cleanup is safe even if reader creation itself failed. This ensures both reliable resource cleanup AND reliable error detection — failures are not silently swallowed.
+> **Resource cleanup and error detection:** The `XmlReader` implements `IDisposable` and MUST be closed/disposed after use. Since `try/finally` MUST NOT be used (see Section 1), the wrapper function pattern serves dual purposes: (1) the `trap { }` at function scope suppresses terminating errors from `$settings.Schemas.Add()`, `XmlReader.Create()`, **and** `$doc.Load($reader)`, allowing execution to continue to reader cleanup, and (2) the `Get-ReferenceToLastError` / `Test-ErrorOccurred` helper functions (see Section 1, "Error handling via function wrappers") detect whether any of those operations failed by comparing `$Error` stack references before and after the operations. Because the error baseline is captured **before** `Schemas.Add()`, a schema-load failure (missing or malformed XSD) is detected rather than silently leaving the reader without a schema. The conditional `$reader.Close()` (with null check) ensures cleanup is safe even if reader creation itself failed. This ensures both reliable resource cleanup AND reliable error detection — failures are not silently swallowed.
 
 If the XML does not conform to the XSD schema, the `ValidationEventHandler` fires and throws the `XmlSchemaValidationException`, which preserves line number, position, and inner exception context for precise error reporting. The `Test-ErrorOccurred` check after reader cleanup detects this failure and prevents invalid definitions from being processed. This provides formal structural validation without third-party libraries.
 
