@@ -1121,6 +1121,10 @@ For each location/result pair in the scan results, the following record types ar
         ([System.IO.FileAccess]::Write),
         ([System.IO.FileShare]::Read)
     $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stream, $utf8NoBom
+    # Force RFC 4180 CRLF record terminators on every WriteLine() regardless of host
+    # OS. StreamWriter.NewLine defaults to the platform terminator, which is LF on
+    # PowerShell 7+ running on Linux/macOS; without this the output would not be CRLF.
+    $writer.NewLine = "`r`n"
     ```
 
     The `FileStream` and `StreamWriter` MUST be disposed after all CSV rows are written. Since `try/finally` MUST NOT be used (see Section 1), use the `trap`-based error handling pattern to ensure `.Close()` is reached. `StreamWriter.Close()` flushes buffered output and disposes the underlying stream — omitting this risks truncating the final bytes:
@@ -1141,6 +1145,9 @@ For each location/result pair in the scan results, the following record types ar
     ```powershell
     $stdoutStream = [System.Console]::OpenStandardOutput()
     $writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList $stdoutStream, $utf8NoBom
+    # Force RFC 4180 CRLF record terminators (see the file-output example above);
+    # StreamWriter.NewLine is LF by default on PowerShell 7+ on non-Windows hosts.
+    $writer.NewLine = "`r`n"
     ```
 
     **Do NOT use `[System.Console]::Out` directly** for CSV output, as `[System.Console]::OutputEncoding` defaults to the system's OEM code page on Windows. The `StreamWriter` must be disposed (or at minimum flushed) after all CSV rows are written — `StreamWriter` buffers output internally, so omitting `.Flush()` / `.Close()` risks truncating the final bytes. The `trap`-based pattern above handles this.
